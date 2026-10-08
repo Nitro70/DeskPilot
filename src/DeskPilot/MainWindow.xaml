@@ -1,0 +1,8 @@
+<Window x:Class="DeskPilot.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DeskPilot" Height="720" Width="980">
+    <Grid>
+        <TextBlock Text="DeskPilot (UI stub)" HorizontalAlignment="Center" VerticalAlignment="Center" />
+    </Grid>
+</Window>

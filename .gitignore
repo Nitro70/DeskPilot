@@ -1,0 +1,20 @@
+bin/
+obj/
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+TestResults/
+*.log
+publish/
+artifacts/
+
+# Never commit local agent tooling or notes
+.claude/
+CLAUDE.md
+graphify-out/
+
+# Local runtime data (portable mode)
+src/DeskPilot/settings.json
+portable.txt

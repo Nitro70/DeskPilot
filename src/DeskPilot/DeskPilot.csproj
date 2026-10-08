@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>DeskPilot</RootNamespace>
+    <AssemblyName>DeskPilot</AssemblyName>
+    <StartupObject>DeskPilot.Program</StartupObject>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- The manifest DPI setting is right for a WPF app; the WinForms analyzer only applies to WinForms apps. -->
+    <NoWarn>$(NoWarn);WFO0003</NoWarn>
+    <ApplicationIcon Condition="Exists('Assets\DeskPilot.ico')">Assets\DeskPilot.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <!-- `dotnet publish -c Release -r win-x64` produces one self-contained exe in bin/publish. -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' != ''">
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <IncludeAllContentForSelfExtract>false</IncludeAllContentForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <DebugType>embedded</DebugType>
+    <PublishDir>$(MSBuildThisFileDirectory)..\..\bin\publish\</PublishDir>
+  </PropertyGroup>
+
+  <!-- WinForms is only here for NotifyIcon; keep its names out of the WPF code's implicit usings. -->
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DeskPilot.Core\DeskPilot.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\**\*.png;Assets\**\*.ico" />
+  </ItemGroup>
+
+</Project>
