@@ -9,6 +9,12 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
+  <!-- Keep WinForms/System.Drawing names out of implicit usings; import them explicitly where needed. -->
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+
   <ItemGroup>
     <InternalsVisibleTo Include="DeskPilot.Tests" />
     <InternalsVisibleTo Include="DeskPilot" />
