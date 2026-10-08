@@ -620,11 +620,18 @@ public class DesktopTests
             var req = new CaptureRequest(new ScreenRect(0, 0, 400, 300), 200, 150, ImageFormatKind.Jpeg, 70, DrawCursor: true, GridSpacing: 40);
             cap.Capture(req);
             var self = Process.GetCurrentProcess().Handle;
-            uint before = GetGuiResources(self, GR_GDIOBJECTS);
-            for (int i = 0; i < 40; i++) cap.Capture(req);
-            uint after = GetGuiResources(self, GR_GDIOBJECTS);
-            _out.WriteLine($"GDI objects before {before}, after {after}");
-            Assert.True(after <= before + 5, $"GDI objects grew from {before} to {after}");
+            // The count is process-wide and other tests (WPF windows) run in parallel, so one noisy
+            // round proves nothing. A real leak grows by at least one handle per capture in EVERY round.
+            long best = long.MaxValue;
+            for (int round = 0; round < 3 && best > 5; round++)
+            {
+                uint before = GetGuiResources(self, GR_GDIOBJECTS);
+                for (int i = 0; i < 40; i++) cap.Capture(req);
+                uint after = GetGuiResources(self, GR_GDIOBJECTS);
+                _out.WriteLine($"Round {round}: GDI objects before {before}, after {after}");
+                best = Math.Min(best, (long)after - before);
+            }
+            Assert.True(best <= 5, $"GDI objects grew by {best} over 40 captures in every round");
         }
 
         [Fact]

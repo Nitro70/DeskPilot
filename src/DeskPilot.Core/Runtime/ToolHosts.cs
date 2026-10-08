@@ -94,6 +94,8 @@ public sealed class ObservedToolHost : IToolHost
                 }
                 catch (OperationCanceledException)
                 {
+                    // Report the call as ended so the log never shows a call without a result.
+                    _emit(new ToolResultEvent(callId, name, true, "Cancelled.", null, sw.Elapsed));
                     throw;
                 }
                 catch (Exception ex)

@@ -36,7 +36,14 @@ public static class SecretProtector
         if (!string.IsNullOrWhiteSpace(stored)) return stored.Trim();
         if (!string.IsNullOrWhiteSpace(profile.ApiKeyEnvVar))
         {
-            var env = Environment.GetEnvironmentVariable(profile.ApiKeyEnvVar.Trim());
+            var name = profile.ApiKeyEnvVar.Trim();
+            // The user-level value too: a key saved with setx after DeskPilot started is not in our process env yet.
+            var env = Environment.GetEnvironmentVariable(name);
+            if (string.IsNullOrWhiteSpace(env))
+            {
+                try { env = Environment.GetEnvironmentVariable(name, EnvironmentVariableTarget.User); }
+                catch (System.Security.SecurityException) { env = null; }
+            }
             if (!string.IsNullOrWhiteSpace(env)) return env.Trim();
         }
         return "";

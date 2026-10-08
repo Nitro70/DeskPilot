@@ -19,6 +19,8 @@ namespace DeskPilot;
 public partial class App : Application
 {
     public const string MinimizedSwitch = "--minimized";
+    /// <summary>Passed by "Restart as administrator": wait for the old instance to exit instead of handing over to it.</summary>
+    public const string RestartSwitch = "--after-restart";
 
     private SingleInstanceGuard? _instance;
     private SettingsStore? _store;
@@ -40,7 +42,18 @@ public partial class App : Application
         base.OnStartup(e);
 
         _instance = new SingleInstanceGuard(SingleInstanceGuard.DefaultBaseName());
-        if (!_instance.TryAcquire())
+        bool acquired = _instance.TryAcquire();
+        if (!acquired && e.Args.Any(a => string.Equals(a, RestartSwitch, StringComparison.OrdinalIgnoreCase)))
+        {
+            // The previous instance is still shutting down after asking for this restart.
+            var deadline = DateTime.UtcNow.AddSeconds(15);
+            while (!acquired && DateTime.UtcNow < deadline)
+            {
+                Thread.Sleep(250);
+                acquired = _instance.TryAcquire();
+            }
+        }
+        if (!acquired)
         {
             // Another DeskPilot is running for this user: bring it forward and leave.
             _instance.SignalFirstInstance();
@@ -67,7 +80,7 @@ public partial class App : Application
             var confirmation = new WpfUserConfirmation(Dispatcher);
             _session = new AgentSession(_store, desktop, confirmation, _overlay, Environment.ProcessPath!);
             var catalog = new ModelCatalog();
-            var detector = new EnvironmentDetector(desktop.Screen, desktop.Windows);
+            var detector = new EnvironmentDetector(desktop.Screen, desktop.Windows) { Settings = () => _store.Current };
 
             _overlay.Attach(_session);
             _overlay.StopRequested += () => _ = StopSessionAsync("Stopped by user");

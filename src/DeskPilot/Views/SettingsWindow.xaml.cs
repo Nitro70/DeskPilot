@@ -253,7 +253,7 @@ public partial class SettingsWindow : Window
         }
         try
         {
-            Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true, Verb = "runas" });
+            Process.Start(new ProcessStartInfo(exe, App.RestartSwitch) { UseShellExecute = true, Verb = "runas" });
         }
         catch (Win32Exception ex) when (ex.NativeErrorCode == ErrorCancelled)
         {
@@ -266,7 +266,9 @@ public partial class SettingsWindow : Window
             return;
         }
         Log.Info("Restarting elevated at the user's request");
-        if (Application.Current != null) Application.Current.Shutdown();
+        // Exit through the app so the agent session (and its CLI child process) is shut down cleanly.
+        if (Application.Current is App app) await app.ExitAsync(askIfBusy: false);
+        else if (Application.Current != null) Application.Current.Shutdown();
         else Close();
     }
 
