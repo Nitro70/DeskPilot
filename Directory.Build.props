@@ -16,5 +16,7 @@
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
     <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
     <Deterministic>true</Deterministic>
+    <!-- Symbols live inside the assemblies, so a publish is just DeskPilot.exe. -->
+    <DebugType>embedded</DebugType>
   </PropertyGroup>
 </Project>
