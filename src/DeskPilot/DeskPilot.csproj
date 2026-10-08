@@ -20,7 +20,8 @@
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <IncludeAllContentForSelfExtract>false</IncludeAllContentForSelfExtract>
-    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <!-- Uncompressed: about half the memory and a much faster MCP bridge start, for a bigger exe. -->
+    <EnableCompressionInSingleFile>false</EnableCompressionInSingleFile>
     <DebugType>embedded</DebugType>
     <PublishDir>$(MSBuildThisFileDirectory)..\..\bin\publish\</PublishDir>
   </PropertyGroup>
