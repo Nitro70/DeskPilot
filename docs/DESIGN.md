@@ -161,8 +161,10 @@ directory `AppPaths.AgentWorkDirectory`, arguments:
 MCP config file: `{"mcpServers":{"deskpilot":{"type":"stdio","command":"<exe>","args":["--mcp-bridge","<pipe>","<token>"]}}}`.
 
 Environment: `MAX_THINKING_TOKENS=0` when `profile.Thinking == Off`; when `profile.ForceSubscriptionLogin`
-remove `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` so the subscription login is used; add
-`profile.ExtraEnv`.
+remove `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` so the subscription login is used; drop the variables
+a parent Claude Code session sets for its children (`CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, session ids...)
+so DeskPilot also works when started from inside Claude Code; add `profile.ExtraEnv` (an empty value removes
+a variable). Effort `none`/`minimal` map to `low` (Claude Code accepts low, medium, high, xhigh, max).
 
 Observed protocol (stream-json, one JSON object per line):
 
@@ -190,7 +192,10 @@ Observed protocol (stream-json, one JSON object per line):
 ## ACP backend (Agent Client Protocol, experimental)
 
 JSON-RPC 2.0 over the agent's stdio, newline-delimited. Default command `gemini --acp`
-(`profile.CliPath` or auto-detected `gemini`, args from `profile.ExtraCliArgs`, default `--acp`). Flow:
+(`profile.CliPath` or auto-detected `gemini`, args from `profile.ExtraCliArgs`, default `--acp`). For Gemini
+CLI DeskPilot also passes `--allowed-mcp-server-names deskpilot`, `--skip-trust`, `--approval-mode default`,
+`--policy <temp file>` (a policy that denies every tool except DeskPilot's) and `-m <model>` when a model is
+set. For custom ACP agents `CliPath` is the agent command and `ExtraCliArgs` its arguments. Flow:
 `initialize` {protocolVersion: 1, clientCapabilities: {fs: {readTextFile: false, writeTextFile: false}, terminal: false}}
 -> `session/new` {cwd, mcpServers: [{name:"deskpilot", command, args, env: []}]} -> `session/prompt`
 {sessionId, prompt: [{type:"text", text}]} with `session/update` notifications streaming
