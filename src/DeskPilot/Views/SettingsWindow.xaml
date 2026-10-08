@@ -1,10 +1,753 @@
 <Window x:Class="DeskPilot.Views.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="DeskPilot settings" Height="680" Width="900"
-        WindowStartupLocation="CenterOwner">
-    <!-- STUB: owned by the Settings UI agent. -->
+        xmlns:vm="clr-namespace:DeskPilot.ViewModels"
+        Title="DeskPilot settings" Height="740" Width="1000" MinWidth="780" MinHeight="520"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource BgBrush}" Foreground="{DynamicResource TextBrush}">
+    <Window.Resources>
+        <vm:SettingsBoolToVisibilityConverter x:Key="BoolVis" />
+        <vm:SettingsBoolToVisibilityConverter x:Key="InvBoolVis" Invert="True" />
+        <vm:SettingsEqualsToVisibilityConverter x:Key="EqVis" />
+        <vm:SettingsTextToVisibilityConverter x:Key="TextVis" />
+        <vm:SettingsValueToBoolConverter x:Key="ValueBool" />
+
+        <Style x:Key="FieldLabel" TargetType="TextBlock">
+            <Setter Property="Margin" Value="0,14,0,5" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style x:Key="Hint" TargetType="TextBlock">
+            <Setter Property="Margin" Value="0,4,0,0" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{DynamicResource MutedTextBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Style.Triggers>
+                <Trigger Property="Text" Value="">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="Intro" TargetType="TextBlock">
+            <Setter Property="Margin" Value="0,6,0,4" />
+            <Setter Property="Foreground" Value="{DynamicResource SubtleTextBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style x:Key="ErrorLine" TargetType="TextBlock">
+            <Setter Property="Margin" Value="0,4,0,0" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{DynamicResource DangerBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Style.Triggers>
+                <Trigger Property="Text" Value="">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="WarningLine" TargetType="TextBlock">
+            <Setter Property="Margin" Value="0,6,0,0" />
+            <Setter Property="Foreground" Value="{DynamicResource WarningBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Style.Triggers>
+                <Trigger Property="Text" Value="">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="StatusDot" TargetType="Ellipse">
+            <Setter Property="Width" Value="9" />
+            <Setter Property="Height" Value="9" />
+            <Setter Property="Margin" Value="2,6,10,0" />
+            <Setter Property="VerticalAlignment" Value="Top" />
+            <Setter Property="Fill" Value="{DynamicResource MutedTextBrush}" />
+        </Style>
+    </Window.Resources>
+
     <Grid>
-        <TextBlock Text="Settings (stub)" HorizontalAlignment="Center" VerticalAlignment="Center" />
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="220" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Left navigation -->
+        <Border Grid.RowSpan="2" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,1,0">
+            <DockPanel Margin="10,18,10,12">
+                <TextBlock DockPanel.Dock="Top" Text="Settings" FontSize="20" FontWeight="SemiBold" Margin="8,0,0,14" />
+                <ListBox x:Name="SectionList" ItemsSource="{Binding VisibleSections}" SelectedItem="{Binding SelectedSection, Mode=TwoWay}"
+                         Background="Transparent" BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         AutomationProperties.Name="Settings sections">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:SettingsSectionItem}">
+                            <StackPanel Margin="4,6">
+                                <TextBlock Text="{Binding Title}" FontSize="14" />
+                                <TextBlock Text="{Binding Description}" FontSize="11" Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+        </Border>
+
+        <ScrollViewer x:Name="ContentScroll" Grid.Column="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <Grid Margin="28,22,28,28">
+
+                <!-- 1. Models & providers -->
+                <StackPanel Visibility="{Binding SelectedSectionKey, Converter={StaticResource EqVis}, ConverterParameter=models}">
+                    <TextBlock Text="Models &amp; providers" Style="{DynamicResource SectionHeader}" />
+                    <TextBlock Style="{StaticResource Intro}"
+                               Text="A profile is one model provider with its own settings. The active profile answers new requests; the main window can switch between profiles at any time." />
+
+                    <Grid Margin="0,14,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="260" />
+                            <ColumnDefinition Width="24" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Profile list -->
+                        <DockPanel Grid.Column="0" VerticalAlignment="Top">
+                            <WrapPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
+                                <Button x:Name="AddProfileButton" Content="Add..." Click="AddProfile_Click" Style="{DynamicResource AccentButton}" Margin="0,0,6,6"
+                                        ToolTip="Add a profile from a provider preset" />
+                                <Button Content="Duplicate" Command="{Binding DuplicateCommand}" Style="{DynamicResource GhostButton}" Margin="0,0,6,6" />
+                                <Button Content="Delete" Command="{Binding DeleteCommand}" Style="{DynamicResource DangerButton}" Margin="0,0,6,6"
+                                        ToolTip="Delete this profile (the last profile cannot be deleted)" />
+                                <Button Content="Set active" Command="{Binding SetActiveCommand}" Style="{DynamicResource GhostButton}" Margin="0,0,6,6"
+                                        ToolTip="Use this profile for new requests" />
+                            </WrapPanel>
+                            <ListBox x:Name="ProfileList" ItemsSource="{Binding Profiles}" SelectedItem="{Binding SelectedProfile, Mode=TwoWay}"
+                                     MinHeight="200" MaxHeight="380" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                     AutomationProperties.Name="Profiles">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:ProfileViewModel}">
+                                        <StackPanel Margin="2,5">
+                                            <DockPanel LastChildFill="True">
+                                                <Border DockPanel.Dock="Right" Visibility="{Binding IsActive, Converter={StaticResource BoolVis}}"
+                                                        Background="{DynamicResource AccentBrush}" CornerRadius="8" Padding="7,1" Margin="6,0,0,0" VerticalAlignment="Center">
+                                                    <TextBlock Text="active" FontSize="11" Foreground="{DynamicResource AccentTextBrush}" />
+                                                </Border>
+                                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                            </DockPanel>
+                                            <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                                <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Padding="5,0">
+                                                    <TextBlock Text="{Binding KindBadge}" FontSize="11" Foreground="{DynamicResource SubtleTextBrush}" />
+                                                </Border>
+                                                <TextBlock Text="{Binding Model}" FontSize="11" Margin="7,0,0,0" Foreground="{DynamicResource MutedTextBrush}"
+                                                           TextTrimming="CharacterEllipsis" MaxWidth="150" />
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </DockPanel>
+
+                        <!-- Profile editor -->
+                        <StackPanel Grid.Column="2" DataContext="{Binding SelectedProfile}">
+                            <TextBlock Text="Name" Style="{StaticResource FieldLabel}" Margin="0,0,0,5" />
+                            <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Profile name" />
+                            <TextBlock Text="{Binding Errors[Name]}" Style="{StaticResource ErrorLine}" />
+
+                            <TextBlock Text="Kind" Style="{StaticResource FieldLabel}" />
+                            <TextBlock Text="{Binding KindText}" Foreground="{DynamicResource SubtleTextBrush}" />
+                            <TextBlock Text="{Binding PresetNotes}" Style="{StaticResource Hint}" />
+
+                            <TextBlock Text="Model" Style="{StaticResource FieldLabel}" />
+                            <DockPanel>
+                                <Button DockPanel.Dock="Right" Content="Refresh" Command="{Binding RefreshModelsCommand}" Style="{DynamicResource GhostButton}"
+                                        Margin="6,0,0,0" ToolTip="Ask the provider which models are available" />
+                                <ComboBox x:Name="ModelCombo" IsEditable="True" IsTextSearchEnabled="False" ItemsSource="{Binding ModelOptions}"
+                                          TextSearch.TextPath="Id" Text="{Binding Model, UpdateSourceTrigger=PropertyChanged}"
+                                          SelectionChanged="ModelCombo_SelectionChanged" AutomationProperties.Name="Model">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate DataType="{x:Type vm:SettingsModelOption}">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="{Binding Id}" />
+                                                <TextBlock Text="{Binding Hint}" Margin="10,0,0,0" Foreground="{DynamicResource MutedTextBrush}" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+                            </DockPanel>
+                            <StackPanel Orientation="Horizontal" Visibility="{Binding IsLoadingModels, Converter={StaticResource BoolVis}}" Margin="0,6,0,0">
+                                <ProgressBar IsIndeterminate="True" Width="80" Height="4" VerticalAlignment="Center" />
+                            </StackPanel>
+                            <TextBlock Text="{Binding ModelHint}" Style="{StaticResource Hint}" />
+                            <TextBlock Text="{Binding ModelStatus}" Style="{StaticResource Hint}" />
+
+                            <!-- HTTP providers: key and address -->
+                            <StackPanel Visibility="{Binding IsHttp, Converter={StaticResource BoolVis}}">
+                                <TextBlock Text="API key" Style="{StaticResource FieldLabel}" />
+                                <DockPanel Visibility="{Binding HasStoredKey, Converter={StaticResource BoolVis}}">
+                                    <Button DockPanel.Dock="Right" Content="Clear" Command="{Binding ClearKeyCommand}" Style="{DynamicResource GhostButton}" Margin="6,0,0,0" />
+                                    <Button DockPanel.Dock="Right" Content="Replace" Command="{Binding ReplaceKeyCommand}" Style="{DynamicResource GhostButton}" Margin="6,0,0,0"
+                                            Visibility="{Binding IsReplacingKey, Converter={StaticResource InvBoolVis}}" />
+                                    <TextBlock Text="{Binding StoredKeyText}" VerticalAlignment="Center" FontFamily="Cascadia Mono, Consolas" TextWrapping="Wrap" />
+                                </DockPanel>
+                                <DockPanel Visibility="{Binding ShowKeyEntry, Converter={StaticResource BoolVis}}" Margin="0,4,0,0">
+                                    <Button DockPanel.Dock="Right" Content="Cancel" Command="{Binding CancelKeyChangeCommand}" Style="{DynamicResource GhostButton}" Margin="6,0,0,0"
+                                            ToolTip="Keep the saved key" />
+                                    <PasswordBox x:Name="ApiKeyBox" PasswordChanged="ApiKeyBox_PasswordChanged" AutomationProperties.Name="API key" />
+                                </DockPanel>
+                                <TextBlock Text="{Binding KeyStateText}" Style="{StaticResource Hint}" />
+
+                                <TextBlock Text="API key environment variable" Style="{StaticResource FieldLabel}" />
+                                <TextBox Text="{Binding ApiKeyEnvVar, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="API key environment variable" />
+                                <TextBlock Text="{Binding ApiKeyEnvStatus}" Style="{StaticResource Hint}" />
+
+                                <TextBlock Text="Base URL" Style="{StaticResource FieldLabel}" />
+                                <TextBox Text="{Binding BaseUrl, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Base URL" />
+                                <TextBlock Text="{Binding Errors[BaseUrl]}" Style="{StaticResource ErrorLine}" />
+                            </StackPanel>
+
+                            <!-- CLI and ACP agents -->
+                            <StackPanel Visibility="{Binding IsCliOrAcp, Converter={StaticResource BoolVis}}">
+                                <TextBlock Text="CLI path" Style="{StaticResource FieldLabel}" />
+                                <DockPanel>
+                                    <Button DockPanel.Dock="Right" Content="Browse..." Click="BrowseCli_Click" Style="{DynamicResource GhostButton}" Margin="6,0,0,0" />
+                                    <TextBox Text="{Binding CliPath, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="CLI path" />
+                                </DockPanel>
+                                <TextBlock Text="{Binding CliHint}" Style="{StaticResource Hint}" />
+                            </StackPanel>
+
+                            <!-- Thinking -->
+                            <StackPanel Visibility="{Binding ShowThinking, Converter={StaticResource BoolVis}}">
+                                <TextBlock Text="Thinking" Style="{StaticResource FieldLabel}" />
+                                <StackPanel Orientation="Horizontal">
+                                    <RadioButton GroupName="ProfileThinking" Content="Auto" Style="{DynamicResource SegmentedRadio}"
+                                                 IsChecked="{Binding Thinking, Converter={StaticResource ValueBool}, ConverterParameter=Auto}" />
+                                    <RadioButton GroupName="ProfileThinking" Content="On" Style="{DynamicResource SegmentedRadio}"
+                                                 IsChecked="{Binding Thinking, Converter={StaticResource ValueBool}, ConverterParameter=On}" />
+                                    <RadioButton GroupName="ProfileThinking" Content="Off" Style="{DynamicResource SegmentedRadio}"
+                                                 IsChecked="{Binding Thinking, Converter={StaticResource ValueBool}, ConverterParameter=Off}" />
+                                </StackPanel>
+                                <TextBlock Style="{StaticResource Hint}" Text="Auto leaves it to the model. Off is faster and cheaper; On helps with harder tasks." />
+                            </StackPanel>
+
+                            <StackPanel Visibility="{Binding ShowEffort, Converter={StaticResource BoolVis}}">
+                                <TextBlock Text="Effort" Style="{StaticResource FieldLabel}" />
+                                <ComboBox ItemsSource="{Binding EffortOptions}" SelectedValuePath="Value" DisplayMemberPath="Label"
+                                          SelectedValue="{Binding Effort}" HorizontalAlignment="Left" MinWidth="200" AutomationProperties.Name="Effort" />
+                            </StackPanel>
+
+                            <StackPanel Visibility="{Binding IsHttp, Converter={StaticResource BoolVis}}">
+                                <Grid Margin="0,0,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="12" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="12" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="Max output tokens" Style="{StaticResource FieldLabel}" />
+                                        <TextBox Text="{Binding MaxOutputTokensText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Max output tokens" />
+                                        <TextBlock Text="{Binding Errors[MaxOutputTokensText]}" Style="{StaticResource ErrorLine}" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Text="Temperature" Style="{StaticResource FieldLabel}" />
+                                        <TextBox Text="{Binding TemperatureText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Temperature"
+                                                 ToolTip="0 to 2. Leave empty for the provider default." />
+                                        <TextBlock Text="{Binding Errors[TemperatureText]}" Style="{StaticResource ErrorLine}" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="4">
+                                        <TextBlock Text="Request timeout (s)" Style="{StaticResource FieldLabel}" />
+                                        <TextBox Text="{Binding RequestTimeoutText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Request timeout in seconds" />
+                                        <TextBlock Text="{Binding Errors[RequestTimeoutText]}" Style="{StaticResource ErrorLine}" />
+                                    </StackPanel>
+                                </Grid>
+                                <TextBlock Style="{StaticResource Hint}" Text="Leave the temperature empty to use the provider default." />
+                            </StackPanel>
+
+                            <CheckBox Content="Supports vision (sees screenshots)" IsChecked="{Binding SupportsVision}" Style="{DynamicResource ToggleSwitch}" Margin="0,16,0,0" />
+                            <TextBlock Style="{StaticResource Hint}" Text="Turn off for text-only models: DeskPilot then describes the screen with UI Automation text instead of images." />
+
+                            <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
+                                <Button Content="Test connection" Command="{Binding TestConnectionCommand}" Style="{DynamicResource GhostButton}" />
+                                <ProgressBar IsIndeterminate="True" Width="80" Height="4" Margin="12,0,0,0" VerticalAlignment="Center"
+                                             Visibility="{Binding IsTesting, Converter={StaticResource BoolVis}}" />
+                            </StackPanel>
+                            <TextBlock Text="{Binding ConnectionStatus}" Margin="0,8,0,0" TextWrapping="Wrap">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="{DynamicResource SubtleTextBrush}" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding ConnectionOk}" Value="True">
+                                                <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding ConnectionOk}" Value="False">
+                                                <Setter Property="Foreground" Value="{DynamicResource DangerBrush}" />
+                                            </DataTrigger>
+                                            <Trigger Property="Text" Value="">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                            </Trigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+
+                            <TextBlock Style="{StaticResource Hint}" Margin="0,14,0,0"
+                                       Visibility="{Binding DataContext.AdvancedMode, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolVis}}"
+                                       Text="More options for this profile (extra arguments, environment, headers, request JSON) are on the Advanced page." />
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- Detected on this PC -->
+                    <Border Style="{DynamicResource CardBorder}" Margin="0,24,0,0" Padding="16">
+                        <StackPanel>
+                            <DockPanel>
+                                <Button DockPanel.Dock="Right" Content="Detect again" Command="{Binding RedetectCommand}" Style="{DynamicResource GhostButton}" />
+                                <TextBlock Text="Detected on this PC" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            </DockPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                <ProgressBar IsIndeterminate="True" Width="100" Height="4" Margin="0,0,10,0" VerticalAlignment="Center"
+                                             Visibility="{Binding IsDetecting, Converter={StaticResource BoolVis}}" />
+                                <TextBlock Text="{Binding DetectionStatus}" Style="{StaticResource Hint}" Margin="0" />
+                            </StackPanel>
+                            <ItemsControl ItemsSource="{Binding DetectedItems}" Focusable="False">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:SettingsDetectedItem}">
+                                        <DockPanel Margin="0,10,0,0">
+                                            <Button DockPanel.Dock="Right" Content="Add" Command="{Binding AddCommand}" ToolTip="{Binding AddTooltip}"
+                                                    Visibility="{Binding CanAdd, Converter={StaticResource BoolVis}}" Style="{DynamicResource GhostButton}"
+                                                    VerticalAlignment="Center" Margin="10,0,0,0" />
+                                            <Ellipse>
+                                                <Ellipse.Style>
+                                                    <Style TargetType="Ellipse" BasedOn="{StaticResource StatusDot}">
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsFound}" Value="True">
+                                                                <Setter Property="Fill" Value="{DynamicResource SuccessBrush}" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Ellipse.Style>
+                                            </Ellipse>
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Title}" FontWeight="SemiBold" />
+                                                <TextBlock Text="{Binding Detail}" Style="{StaticResource Hint}" Margin="0,2,0,0" />
+                                            </StackPanel>
+                                        </DockPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- 2. Your instructions -->
+                <StackPanel Visibility="{Binding SelectedSectionKey, Converter={StaticResource EqVis}, ConverterParameter=instructions}">
+                    <TextBlock Text="Your instructions" Style="{DynamicResource SectionHeader}" />
+                    <TextBlock Style="{StaticResource Intro}"
+                               Text="Standing instructions added to every request, whichever model you use. Tell the agent about your setup and preferences: the browser you use, apps to prefer or avoid, folders, how careful to be. Leave it empty if you have none." />
+                    <TextBox Text="{Binding UserInstructions, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" AcceptsTab="False"
+                             TextWrapping="Wrap" MinHeight="280" MaxHeight="520" VerticalScrollBarVisibility="Auto" Margin="0,12,0,0"
+                             SpellCheck.IsEnabled="True" AutomationProperties.Name="Your instructions" />
+                    <TextBlock Style="{StaticResource Hint}" Margin="0,8,0,0"
+                               Text="Example: Use Firefox for anything on the web. My documents are in the Documents folder under Work. Never close windows you did not open." />
+                </StackPanel>
+
+                <!-- 3. Vault -->
+                <StackPanel Visibility="{Binding SelectedSectionKey, Converter={StaticResource EqVis}, ConverterParameter=vault}">
+                    <TextBlock Text="Vault" Style="{DynamicResource SectionHeader}" />
+                    <TextBlock Style="{StaticResource Intro}"
+                               Text="A vault is an optional folder of notes, such as an Obsidian vault. DeskPilot does not read it up front: the agent searches it only when a request needs something written there, and then reads just the matching lines." />
+
+                    <TextBlock Text="Vault folder" Style="{StaticResource FieldLabel}" />
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right" Content="Clear" Command="{Binding ClearVaultCommand}" Style="{DynamicResource GhostButton}" Margin="6,0,0,0" />
+                        <Button DockPanel.Dock="Right" Content="Browse..." Click="BrowseVault_Click" Style="{DynamicResource GhostButton}" Margin="6,0,0,0" />
+                        <TextBox Text="{Binding VaultPath, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Vault folder" />
+                    </DockPanel>
+                    <TextBlock Text="{Binding VaultPathStatus}" Style="{StaticResource Hint}" />
+
+                    <StackPanel Visibility="{Binding HasDetectedVaults, Converter={StaticResource BoolVis}}">
+                        <TextBlock Text="Obsidian vaults found on this PC" Style="{StaticResource FieldLabel}" />
+                        <ComboBox ItemsSource="{Binding DetectedVaults}" SelectedItem="{Binding SelectedDetectedVault}" AutomationProperties.Name="Detected Obsidian vaults" />
+                    </StackPanel>
+
+                    <CheckBox Content="Let the agent search the vault" IsChecked="{Binding VaultEnabled}" Style="{DynamicResource ToggleSwitch}" Margin="0,18,0,0" />
+                    <CheckBox Content="Allow the agent to add notes" IsChecked="{Binding VaultAllowWrites}" Style="{DynamicResource ToggleSwitch}" Margin="0,10,0,0" />
+                    <TextBlock Style="{StaticResource Hint}" Text="When on, the agent can create new .md notes and append to existing ones. It never deletes or rewrites notes." />
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="16" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="Max search results" Style="{StaticResource FieldLabel}" />
+                            <TextBox Text="{Binding VaultMaxResultsText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Max search results" />
+                            <TextBlock Text="{Binding Errors[VaultMaxResultsText]}" Style="{StaticResource ErrorLine}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="Max lines per read" Style="{StaticResource FieldLabel}" />
+                            <TextBox Text="{Binding VaultMaxReadLinesText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Max lines per read" />
+                            <TextBlock Text="{Binding Errors[VaultMaxReadLinesText]}" Style="{StaticResource ErrorLine}" />
+                        </StackPanel>
+                    </Grid>
+
+                    <TextBlock Text="File extensions to search" Style="{StaticResource FieldLabel}" />
+                    <TextBox Text="{Binding VaultExtensionsText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="File extensions" />
+                    <TextBlock Text="{Binding Errors[VaultExtensionsText]}" Style="{StaticResource ErrorLine}" />
+                    <TextBlock Style="{StaticResource Hint}" Text="Comma-separated, for example .md, .txt" />
+
+                    <TextBlock Text="Folders to skip" Style="{StaticResource FieldLabel}" />
+                    <TextBox Text="{Binding VaultExcludeText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Folders to skip" />
+                    <TextBlock Style="{StaticResource Hint}" Text="Comma-separated folder names, for example .obsidian, .git, Archive" />
+
+                    <Border Style="{DynamicResource CardBorder}" Margin="0,22,0,0" Padding="16">
+                        <StackPanel>
+                            <TextBlock Text="Test search" FontSize="15" FontWeight="SemiBold" />
+                            <TextBlock Style="{StaticResource Hint}" Text="Runs the same search the agent would, on the settings above (even before you save)." />
+                            <DockPanel Margin="0,10,0,0">
+                                <Button DockPanel.Dock="Right" Content="Search" Command="{Binding VaultTestCommand}" Style="{DynamicResource GhostButton}" Margin="6,0,0,0" />
+                                <TextBox x:Name="VaultQueryBox" Text="{Binding VaultTestQuery, UpdateSourceTrigger=PropertyChanged}" KeyDown="VaultQueryBox_KeyDown"
+                                         AutomationProperties.Name="Test search query" />
+                            </DockPanel>
+                            <ProgressBar IsIndeterminate="True" Height="4" Margin="0,8,0,0" Visibility="{Binding IsVaultTesting, Converter={StaticResource BoolVis}}" />
+                            <TextBox Text="{Binding VaultTestResult, Mode=OneWay}" IsReadOnly="True" Style="{DynamicResource MonoTextBox}" TextWrapping="Wrap"
+                                     MaxHeight="260" VerticalScrollBarVisibility="Auto" Margin="0,10,0,0" AutomationProperties.Name="Test search result"
+                                     Visibility="{Binding VaultTestResult, Converter={StaticResource TextVis}}" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- 4. Safety -->
+                <StackPanel Visibility="{Binding SelectedSectionKey, Converter={StaticResource EqVis}, ConverterParameter=safety}">
+                    <TextBlock Text="Safety" Style="{DynamicResource SectionHeader}" />
+
+                    <Border Style="{DynamicResource CardBorder}" Margin="0,14,0,0" Padding="16">
+                        <StackPanel>
+                            <CheckBox Content="Administrator mode" IsChecked="{Binding AllowAdmin}" Style="{DynamicResource ToggleSwitch}" FontWeight="SemiBold" />
+                            <TextBlock Style="{StaticResource WarningLine}"
+                                       Text="When on, the agent may click and type into administrator (elevated) windows and start programs as administrator. Mistakes there can change system settings for every user. Leave it off unless a task needs it, and watch what the agent does." />
+                            <TextBlock Style="{StaticResource Hint}"
+                                       Text="When off, the agent cannot touch elevated windows, cannot answer UAC prompts and cannot launch programs elevated." />
+                            <StackPanel Visibility="{Binding ShowRestartAsAdmin, Converter={StaticResource BoolVis}}" Margin="0,12,0,0">
+                                <TextBlock Style="{StaticResource Intro}" Text="DeskPilot itself is not running as administrator, so Windows will still keep elevated windows out of its reach. Restart it as administrator to use this mode. Your settings are saved first." />
+                                <Button Content="Restart DeskPilot as administrator" Click="RestartAsAdmin_Click" Style="{DynamicResource DangerButton}" HorizontalAlignment="Left" Margin="0,8,0,0" />
+                            </StackPanel>
+                            <TextBlock Style="{StaticResource Hint}" Text="DeskPilot is running as administrator."
+                                       Visibility="{Binding IsElevated, Converter={StaticResource BoolVis}}" />
+                            <TextBlock Text="{Binding AdminRestartStatus}" Style="{StaticResource WarningLine}" />
+                        </StackPanel>
+                    </Border>
+
+                    <TextBlock Text="Ask me before" Style="{StaticResource FieldLabel}" />
+                    <StackPanel Orientation="Horizontal">
+                        <RadioButton GroupName="ConfirmMode" Content="Never" Style="{DynamicResource SegmentedRadio}"
+                                     IsChecked="{Binding Confirm, Converter={StaticResource ValueBool}, ConverterParameter=Never}" />
+                        <RadioButton GroupName="ConfirmMode" Content="Risky actions only" Style="{DynamicResource SegmentedRadio}"
+                                     IsChecked="{Binding Confirm, Converter={StaticResource ValueBool}, ConverterParameter=RiskyOnly}" />
+                        <RadioButton GroupName="ConfirmMode" Content="Every action" Style="{DynamicResource SegmentedRadio}"
+                                     IsChecked="{Binding Confirm, Converter={StaticResource ValueBool}, ConverterParameter=Always}" />
+                    </StackPanel>
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="Risky actions are launching programs, running commands, writing notes and keys like Enter, Delete or Alt+F4. Every action also asks before clicks and typing." />
+
+                    <CheckBox Content="Allow launching apps, files, folders and web pages" IsChecked="{Binding AllowAppLaunch}" Style="{DynamicResource ToggleSwitch}" Margin="0,18,0,0" />
+                    <CheckBox Content="Allow shell commands (PowerShell, cmd)" IsChecked="{Binding AllowShellCommands}" Style="{DynamicResource ToggleSwitch}" Margin="0,12,0,0" />
+                    <TextBlock Style="{StaticResource WarningLine}" Visibility="{Binding AllowShellCommands, Converter={StaticResource BoolVis}}"
+                               Text="Commands can change or delete files without any visible window. They never run elevated unless Administrator mode is on. Consider asking before risky actions." />
+                    <CheckBox Content="Allow reading and setting the clipboard" IsChecked="{Binding AllowClipboard}" Style="{DynamicResource ToggleSwitch}" Margin="0,12,0,0" />
+                    <CheckBox Content="Dry run (describe actions without doing them)" IsChecked="{Binding DryRun}" Style="{DynamicResource ToggleSwitch}" Margin="0,12,0,0" />
+                    <CheckBox Content="Failsafe corner: stop when I push the mouse into the top-left corner" IsChecked="{Binding FailsafeCorner}" Style="{DynamicResource ToggleSwitch}" Margin="0,12,0,0" />
+                    <CheckBox Content="Stop when I move the mouse" IsChecked="{Binding StopOnUserMouseMove}" Style="{DynamicResource ToggleSwitch}" Margin="0,12,0,0" />
+
+                    <TextBlock Text="Max actions per request" Style="{StaticResource FieldLabel}" />
+                    <TextBox Text="{Binding MaxStepsText, UpdateSourceTrigger=PropertyChanged}" HorizontalAlignment="Left" MinWidth="120" AutomationProperties.Name="Max actions per request" />
+                    <TextBlock Text="{Binding Errors[MaxStepsText]}" Style="{StaticResource ErrorLine}" />
+
+                    <TextBlock Text="Blocked apps" Style="{StaticResource FieldLabel}" />
+                    <TextBox Text="{Binding BlockedProcessesText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Blocked apps" />
+                    <TextBlock Style="{StaticResource Hint}" Text="Process names the agent must never click, type into or focus, comma-separated. Example: KeePassXC, 1Password" />
+
+                    <StackPanel Visibility="{Binding AdvancedMode, Converter={StaticResource BoolVis}}">
+                        <TextBlock Text="Elevation text patterns (advanced)" Style="{StaticResource FieldLabel}" />
+                        <TextBox Text="{Binding ElevationPatternsText, UpdateSourceTrigger=PropertyChanged}" Style="{DynamicResource MonoTextBox}" AcceptsReturn="True"
+                                 TextWrapping="NoWrap" MinHeight="110" MaxHeight="220" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                                 AutomationProperties.Name="Elevation text patterns" />
+                        <TextBlock Text="{Binding Errors[ElevationPatternsText]}" Style="{StaticResource ErrorLine}" />
+                        <TextBlock Style="{StaticResource Hint}" Text="One regular expression per line. Typed text and commands that match are blocked while Administrator mode is off." />
+
+                        <TextBlock Text="Elevated launch targets (advanced)" Style="{StaticResource FieldLabel}" />
+                        <TextBox Text="{Binding ElevatedTargetsText, UpdateSourceTrigger=PropertyChanged}" Style="{DynamicResource MonoTextBox}" AcceptsReturn="True"
+                                 TextWrapping="NoWrap" MinHeight="110" MaxHeight="220" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                                 AutomationProperties.Name="Elevated launch targets" />
+                        <TextBlock Style="{StaticResource Hint}" Text="One program per line. These always ask for administrator rights, so launching them is blocked while Administrator mode is off." />
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- 5. Screen -->
+                <StackPanel Visibility="{Binding SelectedSectionKey, Converter={StaticResource EqVis}, ConverterParameter=screen}">
+                    <TextBlock Text="Screen" Style="{DynamicResource SectionHeader}" />
+                    <TextBlock Style="{StaticResource Intro}" Text="What the model sees and how its clicks map to your screen." />
+
+                    <TextBlock Text="Monitor" Style="{StaticResource FieldLabel}" />
+                    <StackPanel Orientation="Horizontal">
+                        <RadioButton GroupName="Monitor" Content="Primary" Style="{DynamicResource SegmentedRadio}"
+                                     IsChecked="{Binding MonitorSelection, Converter={StaticResource ValueBool}, ConverterParameter=Primary}" />
+                        <RadioButton GroupName="Monitor" Content="All monitors" Style="{DynamicResource SegmentedRadio}"
+                                     IsChecked="{Binding MonitorSelection, Converter={StaticResource ValueBool}, ConverterParameter=AllMonitors}" />
+                        <RadioButton GroupName="Monitor" Content="Specific" Style="{DynamicResource SegmentedRadio}"
+                                     IsChecked="{Binding MonitorSelection, Converter={StaticResource ValueBool}, ConverterParameter=Specific}" />
+                    </StackPanel>
+                    <ComboBox ItemsSource="{Binding MonitorOptions}" SelectedValuePath="Index" DisplayMemberPath="Label" SelectedValue="{Binding MonitorIndex}"
+                              IsEnabled="{Binding IsSpecificMonitor}" HorizontalAlignment="Left" MinWidth="320" Margin="0,8,0,0" AutomationProperties.Name="Monitor" />
+                    <TextBlock Text="{Binding Errors[MonitorIndex]}" Style="{StaticResource ErrorLine}" />
+                    <TextBlock Style="{StaticResource Hint}" Text="All monitors makes one wide screenshot; small text gets harder to read. One monitor is usually better." />
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="16" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="Max image width" Style="{StaticResource FieldLabel}" />
+                            <TextBox Text="{Binding MaxImageWidthText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Max image width" />
+                            <TextBlock Text="{Binding Errors[MaxImageWidthText]}" Style="{StaticResource ErrorLine}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="Max image height" Style="{StaticResource FieldLabel}" />
+                            <TextBox Text="{Binding MaxImageHeightText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Max image height" />
+                            <TextBlock Text="{Binding Errors[MaxImageHeightText]}" Style="{StaticResource ErrorLine}" />
+                        </StackPanel>
+                    </Grid>
+                    <TextBlock Style="{StaticResource Hint}" Text="Screenshots are scaled down to fit this box. 1280 x 800 suits most vision models; bigger costs more and is slower." />
+
+                    <TextBlock Text="Image format" Style="{StaticResource FieldLabel}" />
+                    <StackPanel Orientation="Horizontal">
+                        <RadioButton GroupName="ImageFormat" Content="JPEG" Style="{DynamicResource SegmentedRadio}"
+                                     IsChecked="{Binding ImageFormat, Converter={StaticResource ValueBool}, ConverterParameter=jpeg}" />
+                        <RadioButton GroupName="ImageFormat" Content="PNG" Style="{DynamicResource SegmentedRadio}"
+                                     IsChecked="{Binding ImageFormat, Converter={StaticResource ValueBool}, ConverterParameter=png}" />
+                    </StackPanel>
+                    <StackPanel IsEnabled="{Binding IsJpeg}">
+                        <TextBlock Style="{StaticResource FieldLabel}">
+                            <Run Text="JPEG quality: " /><Run Text="{Binding JpegQuality, Mode=OneWay}" />
+                        </TextBlock>
+                        <Slider Minimum="20" Maximum="100" TickFrequency="5" IsSnapToTickEnabled="True" Value="{Binding JpegQuality}" Width="420"
+                                HorizontalAlignment="Left" AutomationProperties.Name="JPEG quality" />
+                    </StackPanel>
+
+                    <CheckBox Content="Draw the mouse cursor into screenshots" IsChecked="{Binding DrawCursor}" Style="{DynamicResource ToggleSwitch}" Margin="0,16,0,0" />
+
+                    <TextBlock Text="Coordinate grid spacing" Style="{StaticResource FieldLabel}" />
+                    <TextBox Text="{Binding GridSpacingText, UpdateSourceTrigger=PropertyChanged}" HorizontalAlignment="Left" MinWidth="120" AutomationProperties.Name="Grid spacing" />
+                    <TextBlock Text="{Binding Errors[GridSpacingText]}" Style="{StaticResource ErrorLine}" />
+                    <TextBlock Style="{StaticResource Hint}" Text="0 = off. A labelled grid every N image pixels helps smaller local models click accurately." />
+
+                    <TextBlock Text="Click coordinates" Style="{StaticResource FieldLabel}" />
+                    <StackPanel Orientation="Horizontal">
+                        <RadioButton GroupName="Coordinates" Content="Screenshot pixels" Style="{DynamicResource SegmentedRadio}"
+                                     IsChecked="{Binding Coordinates, Converter={StaticResource ValueBool}, ConverterParameter=ScreenshotPixels}" />
+                        <RadioButton GroupName="Coordinates" Content="0-1000 normalized" Style="{DynamicResource SegmentedRadio}"
+                                     IsChecked="{Binding Coordinates, Converter={StaticResource ValueBool}, ConverterParameter=Normalized1000}" />
+                    </StackPanel>
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="Screenshot pixels suit Claude and GPT models. Use 0-1000 for models trained that way (Gemini, Qwen-VL and some other local vision models), or when clicks keep landing off by a constant factor." />
+
+                    <CheckBox Content="Take a screenshot after each action" IsChecked="{Binding ScreenshotAfterAction}" Style="{DynamicResource ToggleSwitch}" Margin="0,16,0,0" />
+                    <TextBlock Style="{StaticResource Hint}" Text="The model sees the result right away instead of asking for a new screenshot." />
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="Settle delay (ms)" Style="{StaticResource FieldLabel}" />
+                            <TextBox Text="{Binding SettleDelayText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Settle delay in milliseconds"
+                                     ToolTip="Wait before the screenshot that follows an action, so the UI can react" />
+                            <TextBlock Text="{Binding Errors[SettleDelayText]}" Style="{StaticResource ErrorLine}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="Screenshots kept" Style="{StaticResource FieldLabel}" />
+                            <TextBox Text="{Binding ScreenshotsToKeepText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Screenshots kept"
+                                     ToolTip="API and local providers: older screenshots in the conversation are replaced by a short note" />
+                            <TextBlock Text="{Binding Errors[ScreenshotsToKeepText]}" Style="{StaticResource ErrorLine}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="4">
+                            <TextBlock Text="Typing delay (ms per key)" Style="{StaticResource FieldLabel}" />
+                            <TextBox Text="{Binding TypingDelayText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Typing delay in milliseconds" />
+                            <TextBlock Text="{Binding Errors[TypingDelayText]}" Style="{StaticResource ErrorLine}" />
+                        </StackPanel>
+                    </Grid>
+                    <TextBlock Style="{StaticResource Hint}" Text="Screenshots kept applies to API and local providers; Claude Code and other agents manage their own context." />
+                </StackPanel>
+
+                <!-- 6. Interface -->
+                <StackPanel Visibility="{Binding SelectedSectionKey, Converter={StaticResource EqVis}, ConverterParameter=interface}">
+                    <TextBlock Text="Interface" Style="{DynamicResource SectionHeader}" />
+
+                    <CheckBox Content="Advanced mode" IsChecked="{Binding AdvancedMode}" Style="{DynamicResource ToggleSwitch}" Margin="0,14,0,0" />
+                    <TextBlock Style="{StaticResource Hint}" Text="Shows the Advanced page: the system prompt editor and raw provider options such as extra arguments, headers and request JSON." />
+
+                    <CheckBox Content="Minimize DeskPilot while the agent works" IsChecked="{Binding MinimizeWhileWorking}" Style="{DynamicResource ToggleSwitch}" Margin="0,16,0,0" />
+                    <CheckBox Content="Show the floating status overlay" IsChecked="{Binding ShowOverlay}" Style="{DynamicResource ToggleSwitch}" Margin="0,12,0,0" />
+                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0" IsEnabled="{Binding ShowOverlay}">
+                        <TextBlock Text="Position" VerticalAlignment="Center" Margin="0,0,10,0" />
+                        <ComboBox ItemsSource="{Binding OverlayPositions}" SelectedValuePath="Value" DisplayMemberPath="Label" SelectedValue="{Binding OverlayPosition}"
+                                  MinWidth="180" AutomationProperties.Name="Overlay position" />
+                    </StackPanel>
+
+                    <TextBlock Text="Stop hotkey" Style="{StaticResource FieldLabel}" />
+                    <StackPanel Orientation="Horizontal">
+                        <TextBox x:Name="HotkeyBox" Text="{Binding StopHotkey, Mode=OneWay}" IsReadOnly="True" IsReadOnlyCaretVisible="False" MinWidth="220"
+                                 PreviewKeyDown="HotkeyBox_PreviewKeyDown" InputMethod.IsInputMethodEnabled="False"
+                                 AutomationProperties.Name="Stop hotkey" ToolTip="Click here and press the new key combination" />
+                        <Button Content="Default" Command="{Binding ResetHotkeyCommand}" Style="{DynamicResource GhostButton}" Margin="6,0,0,0" />
+                    </StackPanel>
+                    <TextBlock Text="{Binding HotkeyHint}" Style="{StaticResource WarningLine}" />
+                    <TextBlock Text="{Binding Errors[StopHotkey]}" Style="{StaticResource ErrorLine}" />
+                    <TextBlock Style="{StaticResource Hint}" Text="Click the box and press the combination you want, for example Ctrl+Alt+X. It stops the agent from anywhere." />
+
+                    <CheckBox Content="Closing the window keeps DeskPilot in the tray" IsChecked="{Binding CloseToTray}" Style="{DynamicResource ToggleSwitch}" Margin="0,18,0,0" />
+                    <CheckBox Content="Show the model's thinking" IsChecked="{Binding ShowThinking}" Style="{DynamicResource ToggleSwitch}" Margin="0,12,0,0" />
+                    <CheckBox Content="Show screenshot thumbnails in the conversation" IsChecked="{Binding ShowScreenshots}" Style="{DynamicResource ToggleSwitch}" Margin="0,12,0,0" />
+                    <CheckBox Content="Start DeskPilot with Windows (minimized)" IsChecked="{Binding StartWithWindows}" Style="{DynamicResource ToggleSwitch}" Margin="0,12,0,0" />
+                    <CheckBox Content="Show the welcome page again at next start" IsChecked="{Binding ShowWelcomeAgain}" Style="{DynamicResource ToggleSwitch}" Margin="0,12,0,0" />
+
+                    <Border Style="{DynamicResource CardBorder}" Margin="0,24,0,0" Padding="16">
+                        <StackPanel>
+                            <TextBlock Text="Where DeskPilot keeps its files" FontSize="15" FontWeight="SemiBold" />
+                            <TextBlock Text="Settings file" Style="{StaticResource FieldLabel}" />
+                            <DockPanel>
+                                <Button DockPanel.Dock="Right" Content="Open folder" Click="OpenSettingsFolder_Click" Style="{DynamicResource GhostButton}" Margin="6,0,0,0" />
+                                <TextBox Text="{Binding SettingsFilePath, Mode=OneWay}" IsReadOnly="True" AutomationProperties.Name="Settings file" />
+                            </DockPanel>
+                            <TextBlock Text="Log folder" Style="{StaticResource FieldLabel}" />
+                            <DockPanel>
+                                <Button DockPanel.Dock="Right" Content="Open folder" Click="OpenLogFolder_Click" Style="{DynamicResource GhostButton}" Margin="6,0,0,0" />
+                                <TextBox Text="{Binding LogFolderPath, Mode=OneWay}" IsReadOnly="True" AutomationProperties.Name="Log folder" />
+                            </DockPanel>
+                            <TextBlock Style="{StaticResource Hint}" Text="API keys are stored encrypted for your Windows account. Logs never contain keys or screenshots." />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- 7. Advanced -->
+                <StackPanel Visibility="{Binding SelectedSectionKey, Converter={StaticResource EqVis}, ConverterParameter=advanced}">
+                    <TextBlock Text="Advanced" Style="{DynamicResource SectionHeader}" />
+
+                    <TextBlock Text="System prompt" Style="{StaticResource FieldLabel}" />
+                    <TextBlock Style="{StaticResource Intro}"
+                               Text="The full instructions sent to the model before your request. Leave it empty to use the built-in prompt, which is kept up to date with DeskPilot. Your instructions (their own page) are added through the {{USER_INSTRUCTIONS}} placeholder." />
+                    <WrapPanel Margin="0,8,0,0">
+                        <Button Content="Load built-in prompt" Command="{Binding LoadBuiltInPromptCommand}" Style="{DynamicResource GhostButton}" Margin="0,0,6,6"
+                                ToolTip="Copy the built-in prompt into the editor as a starting point" />
+                        <Button Content="Reset to built-in" Command="{Binding ResetPromptCommand}" Style="{DynamicResource GhostButton}" Margin="0,0,6,6"
+                                ToolTip="Clear the editor so the built-in prompt is used" />
+                        <Button Content="Preview" Click="PreviewPrompt_Click" Style="{DynamicResource AccentButton}" Margin="0,0,6,6"
+                                ToolTip="Show the prompt the active profile would get with these settings" />
+                    </WrapPanel>
+                    <TextBlock Text="{Binding PromptStatus}" Style="{StaticResource Hint}" />
+                    <TextBox x:Name="PromptEditor" Text="{Binding CustomSystemPrompt, UpdateSourceTrigger=PropertyChanged}" Style="{DynamicResource MonoTextBox}"
+                             AcceptsReturn="True" AcceptsTab="True" TextWrapping="Wrap" MinHeight="300" MaxHeight="560" VerticalScrollBarVisibility="Auto"
+                             Margin="0,8,0,0" AutomationProperties.Name="System prompt" />
+
+                    <TextBlock Text="Placeholders (click to insert at the cursor)" Style="{StaticResource FieldLabel}" />
+                    <ItemsControl ItemsSource="{Binding Placeholders}" Focusable="False">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:SettingsPlaceholderItem}">
+                                <DockPanel Margin="0,0,0,4">
+                                    <!-- TextBlock content: a plain string would turn the "_" in {{MAX_STEPS}} into an access key. -->
+                                    <Button DockPanel.Dock="Left" Tag="{Binding Name}" Click="Placeholder_Click" Style="{DynamicResource GhostButton}"
+                                            MinWidth="190" HorizontalContentAlignment="Left" ToolTip="Insert at the cursor"
+                                            AutomationProperties.Name="{Binding Name}">
+                                        <TextBlock Text="{Binding Name}" FontFamily="Cascadia Mono, Consolas" />
+                                    </Button>
+                                    <TextBlock Text="{Binding Description}" Margin="12,0,0,0" VerticalAlignment="Center" TextWrapping="Wrap"
+                                               Foreground="{DynamicResource SubtleTextBrush}" />
+                                </DockPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <Border Style="{DynamicResource CardBorder}" Margin="0,24,0,0" Padding="16">
+                        <StackPanel>
+                            <TextBlock Text="Provider options" FontSize="15" FontWeight="SemiBold" />
+                            <TextBlock Style="{StaticResource Hint}" Text="Raw options for one profile. Wrong values here can break requests; the defaults are fine for almost everyone." />
+                            <TextBlock Text="Profile" Style="{StaticResource FieldLabel}" />
+                            <ComboBox ItemsSource="{Binding Profiles}" SelectedItem="{Binding SelectedProfile, Mode=TwoWay}" DisplayMemberPath="Name"
+                                      HorizontalAlignment="Left" MinWidth="300" AutomationProperties.Name="Profile for provider options" />
+
+                            <StackPanel DataContext="{Binding SelectedProfile}">
+                                <StackPanel Visibility="{Binding IsCliOrAcp, Converter={StaticResource BoolVis}}">
+                                    <TextBlock Text="Extra CLI arguments" Style="{StaticResource FieldLabel}" />
+                                    <TextBox Text="{Binding ExtraCliArgs, UpdateSourceTrigger=PropertyChanged}" Style="{DynamicResource MonoTextBox}" AutomationProperties.Name="Extra CLI arguments" />
+                                    <TextBlock Style="{StaticResource Hint}" Text="Appended to the command line as typed; use double quotes for values with spaces. ACP agents: these are the arguments that start ACP mode (Gemini CLI: --acp)." />
+
+                                    <TextBlock Text="Extra environment" Style="{StaticResource FieldLabel}" />
+                                    <TextBox Text="{Binding ExtraEnvText, UpdateSourceTrigger=PropertyChanged}" Style="{DynamicResource MonoTextBox}" AcceptsReturn="True"
+                                             TextWrapping="NoWrap" MinHeight="80" MaxHeight="200" VerticalScrollBarVisibility="Auto" AutomationProperties.Name="Extra environment" />
+                                    <TextBlock Text="{Binding Errors[ExtraEnvText]}" Style="{StaticResource ErrorLine}" />
+                                    <TextBlock Style="{StaticResource Hint}" Text="One NAME=value per line, set for the agent process only." />
+                                </StackPanel>
+
+                                <StackPanel Visibility="{Binding IsClaudeCli, Converter={StaticResource BoolVis}}">
+                                    <CheckBox Content="Always use my Claude subscription login" IsChecked="{Binding ForceSubscriptionLogin}" Style="{DynamicResource ToggleSwitch}" Margin="0,16,0,0" />
+                                    <TextBlock Style="{StaticResource Hint}" Text="Hides ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN from Claude Code so it cannot bill an API key by accident." />
+                                </StackPanel>
+
+                                <StackPanel Visibility="{Binding IsHttp, Converter={StaticResource BoolVis}}">
+                                    <TextBlock Text="Extra headers" Style="{StaticResource FieldLabel}" />
+                                    <TextBox Text="{Binding ExtraHeadersText, UpdateSourceTrigger=PropertyChanged}" Style="{DynamicResource MonoTextBox}" AcceptsReturn="True"
+                                             TextWrapping="NoWrap" MinHeight="80" MaxHeight="200" VerticalScrollBarVisibility="Auto" AutomationProperties.Name="Extra headers" />
+                                    <TextBlock Text="{Binding Errors[ExtraHeadersText]}" Style="{StaticResource ErrorLine}" />
+                                    <TextBlock Style="{StaticResource Hint}" Text="One Name: value per line, for example api-key for Azure or HTTP-Referer for OpenRouter." />
+
+                                    <TextBlock Text="Extra body JSON" Style="{StaticResource FieldLabel}" />
+                                    <TextBox Text="{Binding ExtraBodyJson, UpdateSourceTrigger=PropertyChanged}" Style="{DynamicResource MonoTextBox}" AcceptsReturn="True"
+                                             TextWrapping="Wrap" MinHeight="90" MaxHeight="240" VerticalScrollBarVisibility="Auto" AutomationProperties.Name="Extra body JSON" />
+                                    <TextBlock Text="{Binding Errors[ExtraBodyJson]}" Style="{StaticResource ErrorLine}" />
+                                    <TextBlock Style="{StaticResource Hint}" Text="A JSON object merged into every request, for example {&quot;top_p&quot;: 0.9}. Leave empty for none." />
+                                </StackPanel>
+
+                                <StackPanel Visibility="{Binding IsOpenAiCompatible, Converter={StaticResource BoolVis}}">
+                                    <TextBlock Text="Reasoning style" Style="{StaticResource FieldLabel}" />
+                                    <ComboBox ItemsSource="{x:Static vm:ProfileViewModel.ReasoningStyles}" SelectedValuePath="Value" DisplayMemberPath="Label"
+                                              SelectedValue="{Binding ReasoningStyle}" HorizontalAlignment="Left" MinWidth="300" AutomationProperties.Name="Reasoning style" />
+                                    <TextBlock Style="{StaticResource Hint}" Text="How this server expects thinking and effort settings. If requests fail with a reasoning error, DeskPilot retries without them." />
+                                </StackPanel>
+
+                                <StackPanel Visibility="{Binding IsAnthropicApi, Converter={StaticResource BoolVis}}">
+                                    <TextBlock Text="Thinking budget tokens" Style="{StaticResource FieldLabel}" />
+                                    <TextBox Text="{Binding ThinkingBudgetText, UpdateSourceTrigger=PropertyChanged}" HorizontalAlignment="Left" MinWidth="160"
+                                             AutomationProperties.Name="Thinking budget tokens" />
+                                    <TextBlock Text="{Binding Errors[ThinkingBudgetText]}" Style="{StaticResource ErrorLine}" />
+                                    <TextBlock Style="{StaticResource Hint}" Text="Used when thinking is On for older models that need a fixed budget (Claude Haiku 4.5 and older)." />
+                                    <CheckBox Content="Use prompt caching" IsChecked="{Binding UsePromptCaching}" Style="{DynamicResource ToggleSwitch}" Margin="0,16,0,0" />
+                                    <CheckBox Content="Use context editing (clear old tool results on the server)" IsChecked="{Binding UseContextEditing}" Style="{DynamicResource ToggleSwitch}" Margin="0,12,0,0" />
+                                </StackPanel>
+
+                                <TextBlock Style="{StaticResource Hint}" Margin="0,14,0,0" Visibility="{Binding IsOllama, Converter={StaticResource BoolVis}}"
+                                           Text="Ollama profiles have no extra options here: thinking, output tokens and temperature are on the Models &amp; providers page." />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </Grid>
+        </ScrollViewer>
+
+        <!-- Footer -->
+        <Border Grid.Row="1" Grid.Column="1" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Padding="24,12">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Content="Cancel" Click="Cancel_Click" Style="{DynamicResource GhostButton}" MinWidth="96" Margin="0,0,8,0" />
+                    <Button x:Name="SaveButton" Content="Save" Click="Save_Click" Style="{DynamicResource AccentButton}" MinWidth="96" />
+                </StackPanel>
+                <TextBlock Text="{Binding ErrorSummary}" Style="{StaticResource ErrorLine}" VerticalAlignment="Center" Margin="0,0,16,0" />
+            </DockPanel>
+        </Border>
     </Grid>
 </Window>
