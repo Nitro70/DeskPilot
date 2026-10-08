@@ -1,0 +1,108 @@
+<Window x:Class="DeskPilot.Views.ConfirmWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:DeskPilot.ViewModels"
+        Title="DeskPilot: allow this action?"
+        Width="500" SizeToContent="Height" ResizeMode="NoResize"
+        WindowStartupLocation="CenterScreen" Topmost="True" ShowInTaskbar="True"
+        Icon="/DeskPilot;component/Assets/DeskPilot.ico"
+        UseLayoutRounding="True"
+        FocusManager.FocusedElement="{Binding ElementName=DenyButton}"
+        Background="{DynamicResource BgBrush}" Foreground="{DynamicResource TextBrush}">
+    <Grid Margin="22,20,22,18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Border Width="36" Height="36" CornerRadius="10" Background="{DynamicResource WarningSoftBrush}" VerticalAlignment="Top">
+                <TextBlock Text="&#xE7BA;" FontFamily="{DynamicResource IconFont}" FontSize="16"
+                           Foreground="{DynamicResource WarningBrush}"
+                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+            <StackPanel Grid.Column="1" Margin="14,0,0,0">
+                <TextBlock Text="DeskPilot wants to do this" FontSize="16" FontWeight="SemiBold" />
+                <TextBlock Style="{StaticResource CaptionText}" Margin="0,3,0,0"
+                           Text="Allow it only if it is part of what you asked for. The agent waits until you decide." />
+            </StackPanel>
+        </Grid>
+
+        <Border Grid.Row="1" Style="{StaticResource CardBorder}" Margin="0,16,0,0">
+            <StackPanel>
+                <DockPanel LastChildFill="True">
+                    <Border x:Name="RiskBadge" DockPanel.Dock="Right" Margin="12,1,0,0" VerticalAlignment="Top"
+                            AutomationProperties.Name="{Binding RiskText}">
+                        <Border.Style>
+                            <Style TargetType="{x:Type Border}" BasedOn="{StaticResource BadgeBorder}">
+                                <Setter Property="Background" Value="{DynamicResource Panel2Brush}" />
+                                <Setter Property="TextElement.Foreground" Value="{DynamicResource SubtleTextBrush}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Risk}" Value="Low">
+                                        <Setter Property="Background" Value="{DynamicResource SuccessSoftBrush}" />
+                                        <Setter Property="TextElement.Foreground" Value="{DynamicResource SuccessBrush}" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding Risk}" Value="Medium">
+                                        <Setter Property="Background" Value="{DynamicResource WarningSoftBrush}" />
+                                        <Setter Property="TextElement.Foreground" Value="{DynamicResource WarningBrush}" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding Risk}" Value="High">
+                                        <Setter Property="Background" Value="{DynamicResource DangerSoftBrush}" />
+                                        <Setter Property="TextElement.Foreground" Value="{DynamicResource DangerBrush}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock Text="{Binding RiskText}" FontSize="11" FontWeight="SemiBold" />
+                    </Border>
+                    <TextBlock Text="{Binding Summary}" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap" />
+                </DockPanel>
+
+                <ItemsControl ItemsSource="{Binding Details}" Margin="0,12,0,0" Focusable="False">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:ConfirmDetail}">
+                            <Grid Margin="0,3">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="96" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="{Binding Label}" Foreground="{DynamicResource SubtleTextBrush}" FontSize="12" Margin="0,2,8,0" />
+                                <TextBox x:Name="Value" Grid.Column="1" Text="{Binding Value, Mode=OneWay}" IsReadOnly="True"
+                                         TextWrapping="Wrap" MaxHeight="160" VerticalScrollBarVisibility="Auto"
+                                         Background="Transparent" BorderThickness="0" Padding="0" MinHeight="0"
+                                         FontSize="12.5" AutomationProperties.Name="{Binding Label}" />
+                            </Grid>
+                            <DataTemplate.Triggers>
+                                <DataTrigger Binding="{Binding IsMono}" Value="True">
+                                    <Setter TargetName="Value" Property="FontFamily" Value="{DynamicResource MonoFont}" />
+                                </DataTrigger>
+                            </DataTemplate.Triggers>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </Border>
+
+        <Grid Grid.Row="2" Margin="0,18,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Button x:Name="AllowAllButton" Style="{StaticResource GhostButton}" Content="Allow all for this request"
+                    Click="OnAllowAll" BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}"
+                    ToolTip="Allow this and every other action until the current request finishes" />
+            <Button x:Name="AllowButton" Grid.Column="2" Style="{StaticResource AccentButton}" Content="_Allow" MinWidth="92"
+                    Click="OnAllow" ToolTip="Allow this one action" />
+            <!-- Deny is the default and cancel button: Enter or Esc never approve anything by accident. -->
+            <Button x:Name="DenyButton" Grid.Column="3" Content="_Deny" MinWidth="92" Margin="8,0,0,0"
+                    IsDefault="True" IsCancel="True" Click="OnDeny" ToolTip="Refuse this action (Enter or Esc)" />
+        </Grid>
+    </Grid>
+</Window>
