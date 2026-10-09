@@ -635,7 +635,7 @@ public class LinuxUiMainTests
                 using var second = new SingleInstanceGuard(path);
                 Assert.False(second.TryAcquire());
                 Assert.True(second.SignalFirstInstance());
-                var done = await Task.WhenAny(activated.Task, Task.Delay(TimeSpan.FromSeconds(10)));
+                var done = await Task.WhenAny(activated.Task, Task.Delay(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
                 Assert.Same(activated.Task, done);
             }
             Assert.False(File.Exists(path)); // removed on dispose
@@ -1527,6 +1527,358 @@ public class LinuxUiMainTests
         }
     }
 
+    /// <summary>
+    /// The main window, overlay and confirmation dialog on a real X server, driven with xdotool: a small program
+    /// compiled against the built app and run with the app's own dependency manifest (the test process itself runs
+    /// Avalonia headless, and one process can host only one Avalonia platform).
+    /// </summary>
+    [X11Fact]
+    public async Task Real_x11_main_window_overlay_and_confirmation_behave()
+    {
+        var appDll = FindAppDll();
+        Assert.True(appDll != null, "the app was not built next to this test build");
+        var appDir = Path.GetDirectoryName(appDll)!;
+        var tfm = new DirectoryInfo(appDir).Name;
+        var work = Path.Combine(Path.GetTempPath(), "dpx11-" + Guid.NewGuid().ToString("N")[..8]);
+        var copy = Path.Combine(work, "app");
+        var project = Path.Combine(work, "check");
+        var shots = Environment.GetEnvironmentVariable("CI_LOGS") is { Length: > 0 } ci ? ci : Path.Combine(work, "shots");
+        try
+        {
+            CopyDirectory(appDir, copy);
+            Directory.CreateDirectory(project);
+            Directory.CreateDirectory(shots);
+            var references = string.Join("\n", Directory.GetFiles(copy, "*.dll")
+                .Select(f => $"    <Reference Include=\"{Path.GetFileNameWithoutExtension(f)}\"><HintPath>{f}</HintPath><Private>false</Private></Reference>"));
+            File.WriteAllText(Path.Combine(project, "check.csproj"), $"""
+                <Project Sdk="Microsoft.NET.Sdk">
+                  <PropertyGroup>
+                    <OutputType>Exe</OutputType>
+                    <TargetFramework>{tfm}</TargetFramework>
+                    <Nullable>enable</Nullable>
+                    <ImplicitUsings>enable</ImplicitUsings>
+                    <AssemblyName>dpx11check</AssemblyName>
+                    <UseAppHost>false</UseAppHost>
+                    <OutDir>{Path.Combine(work, "out")}/</OutDir>
+                    <NoWarn>$(NoWarn);CS1998;CS8602;CS8604;CS8619</NoWarn>
+                  </PropertyGroup>
+                  <ItemGroup>
+                {references}
+                  </ItemGroup>
+                </Project>
+                """);
+            File.WriteAllText(Path.Combine(project, "Program.cs"), X11CheckProgram);
+
+            var dotnet = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") is { Length: > 0 } host ? host : "dotnet";
+            var (buildExit, buildOutput) = RunTool(dotnet, TimeSpan.FromMinutes(4), "build", Path.Combine(project, "check.csproj"), "-nologo", "-v", "q", "-nodeReuse:false");
+            Assert.True(buildExit == 0, "the check program did not build:\n" + buildOutput);
+            File.Copy(Path.Combine(work, "out", "dpx11check.dll"), Path.Combine(copy, "dpx11check.dll"), overwrite: true);
+
+            var (exit, output) = RunTool(dotnet, TimeSpan.FromMinutes(3), new Dictionary<string, string> { ["DPX11_SHOTS"] = shots },
+                "exec", "--depsfile", Path.Combine(copy, "deskpilot.deps.json"), "--runtimeconfig", Path.Combine(copy, "deskpilot.runtimeconfig.json"),
+                Path.Combine(copy, "dpx11check.dll"));
+            foreach (var xwd in Directory.GetFiles(shots, "*.xwd"))
+            {
+                var png = XwdToPng(File.ReadAllBytes(xwd));
+                if (png != null) File.WriteAllBytes(Path.ChangeExtension(xwd, ".png"), png);
+                File.Delete(xwd);
+            }
+            TestContext.Current.TestOutputHelper?.WriteLine(output);
+            try { File.WriteAllText(Path.Combine(shots, "x11-check.txt"), output); }
+            catch (IOException) { }
+            Assert.True(exit == 0, $"exit code {exit}:\n{output}");
+            Assert.DoesNotContain("FAIL ", output);
+            Assert.Contains("OK   overlay is mapped", output);
+        }
+        finally
+        {
+            DeleteQuietly(work);
+        }
+    }
+
+    private static void CopyDirectory(string from, string to)
+    {
+        foreach (var dir in Directory.GetDirectories(from, "*", SearchOption.AllDirectories))
+            Directory.CreateDirectory(Path.Combine(to, Path.GetRelativePath(from, dir)));
+        Directory.CreateDirectory(to);
+        foreach (var file in Directory.GetFiles(from, "*", SearchOption.AllDirectories))
+            File.Copy(file, Path.Combine(to, Path.GetRelativePath(from, file)), overwrite: true);
+    }
+
+    private static (int Exit, string Output) RunTool(string file, TimeSpan timeout, params string[] args) =>
+        RunTool(file, timeout, new Dictionary<string, string>(), args);
+
+    private static (int Exit, string Output) RunTool(string file, TimeSpan timeout, Dictionary<string, string> env, params string[] args)
+    {
+        var psi = new System.Diagnostics.ProcessStartInfo(file) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+        foreach (var a in args) psi.ArgumentList.Add(a);
+        foreach (var (k, v) in env) psi.Environment[k] = v;
+        psi.Environment["MSBUILDDISABLENODEREUSE"] = "1";
+        psi.Environment["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1";
+        using var p = System.Diagnostics.Process.Start(psi)!;
+        var stdout = p.StandardOutput.ReadToEndAsync();
+        var stderr = p.StandardError.ReadToEndAsync();
+        if (!p.WaitForExit((int)timeout.TotalMilliseconds))
+        {
+            try { p.Kill(true); } catch (InvalidOperationException) { }
+            p.WaitForExit(10000);
+            return (-1, "TIMEOUT\n" + stdout.Result + stderr.Result);
+        }
+        return (p.ExitCode, stdout.Result + stderr.Result);
+    }
+
+    /// <summary>The program run by <see cref="Real_x11_main_window_overlay_and_confirmation_behave"/>. Prints OK / FAIL lines.</summary>
+    private const string X11CheckProgram = """
+        using System.Diagnostics;
+        using Avalonia;
+        using Avalonia.Controls;
+        using Avalonia.Threading;
+        using DeskPilot.Core.Abstractions;
+        using DeskPilot.Core.Settings;
+        using DeskPilot.Desktop.Linux;
+        using DeskPilot.Linux;
+        using DeskPilot.Linux.Services;
+        using DeskPilot.Linux.ViewModels;
+
+        var failures = 0;
+        void Ok(string m) => Console.WriteLine("OK   " + m);
+        void Fail(string m) { failures++; Console.WriteLine("FAIL " + m); }
+        void Check(bool c, string m) { if (c) Ok(m); else Fail(m); }
+
+        static (int Exit, string Out) Run(string file, params string[] args)
+        {
+            var psi = new ProcessStartInfo(file) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+            foreach (var a in args) psi.ArgumentList.Add(a);
+            using var p = Process.Start(psi)!;
+            var o = p.StandardOutput.ReadToEndAsync();
+            var e = p.StandardError.ReadToEndAsync();
+            if (!p.WaitForExit(10000)) { try { p.Kill(true); } catch { } return (-1, ""); }
+            return (p.ExitCode, o.Result + e.Result);
+        }
+        static Task<(int Exit, string Out)> RunAsync(string file, params string[] args) => Task.Run(() => Run(file, args));
+        static async Task<string?> FindVisible(string name)
+        {
+            var (e, o) = await RunAsync("xdotool", "search", "--onlyvisible", "--name", name);
+            return e == 0 ? o.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault(l => l.Length > 0 && l.All(char.IsDigit)) : null;
+        }
+        static async Task<string?> WaitFor(string name, bool visible, int ms = 8000)
+        {
+            var end = DateTime.UtcNow.AddMilliseconds(ms);
+            while (DateTime.UtcNow < end)
+            {
+                var id = await FindVisible(name);
+                if ((id != null) == visible) return id ?? "";
+                await Task.Delay(100);
+            }
+            return null;
+        }
+        static async Task<string> Active() => (await RunAsync("xdotool", "getactivewindow")).Out.Trim();
+        static async Task<(int X, int Y, int W, int H)?> Geometry(string id)
+        {
+            var (e, o) = await RunAsync("xdotool", "getwindowgeometry", "--shell", id);
+            if (e != 0) return null;
+            var d = o.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(l => l.Split('=')).Where(p => p.Length == 2).ToDictionary(p => p[0].Trim(), p => int.Parse(p[1].Trim()));
+            return (d["X"], d["Y"], d["WIDTH"], d["HEIGHT"]);
+        }
+        static async Task Shot(string name)
+        {
+            var dir = Environment.GetEnvironmentVariable("DPX11_SHOTS");
+            if (string.IsNullOrEmpty(dir)) return;
+            await RunAsync("xwd", "-root", "-silent", "-out", Path.Combine(dir, name + ".xwd"));
+        }
+
+        DeskPilot.Linux.Program.BuildAvaloniaApp().SetupWithoutStarting();
+        var done = new CancellationTokenSource();
+        var exitCode = 2;
+        Dispatcher.UIThread.Post(async () =>
+        {
+            try
+            {
+                await Script();
+                exitCode = failures == 0 ? 0 : 1;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("FAIL exception " + ex);
+                exitCode = 3;
+            }
+            finally
+            {
+                done.Cancel();
+            }
+        });
+        Dispatcher.UIThread.MainLoop(done.Token);
+        return exitCode;
+
+        async Task Script()
+        {
+            var dir = Path.Combine(Path.GetTempPath(), "dpx11s-" + Guid.NewGuid().ToString("N")[..8]);
+            Directory.CreateDirectory(dir);
+            var store = new SettingsStore(Path.Combine(dir, "settings.json"));
+            var s = store.CloneCurrent();
+            s.FirstRunCompleted = true;
+            s.Ui.MinimizeWhileWorking = true;
+            s.Ui.OverlayPosition = OverlayCorner.BottomRight;
+            store.Save(s);
+
+            var session = new FakeSession();
+            using var overlay = new OverlayController(store, LinuxSessionKind.X11);
+            overlay.Attach(session);
+            int overlayStops = 0;
+            overlay.StopRequested += () => overlayStops++;
+            var vm = new MainViewModel(store, session, new FakeCatalog(), new FakeDetector(), AvaloniaUiDispatcher.Instance, sessionKind: LinuxSessionKind.X11);
+            var main = new MainWindow(vm);
+            main.Show();
+            var mainId = await WaitFor("^DeskPilot$", true);
+            Check(!string.IsNullOrEmpty(mainId), "main window is mapped");
+            await Task.Delay(700);
+            Check(await Active() == mainId, "main window has the keyboard focus");
+            var wa = main.Screens.Primary!.WorkingArea;
+            Ok($"primary working area {wa}");
+
+            var sent = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            session.OnSend = async (text, ct) =>
+            {
+                session.SetState(AgentState.Running);
+                session.Raise(new ToolCallEvent("c1", "screenshot", "{}", "Take a screenshot"));
+                session.Raise(new ToolResultEvent("c1", "screenshot", false, "1280x800", null, TimeSpan.FromMilliseconds(180)));
+                session.Raise(new ToolCallEvent("c2", "click", "{}", "Click at (512, 300) on 'Files'"));
+                sent.TrySetResult(text);
+                await release.Task;
+                session.Raise(new ToolResultEvent("c2", "click", false, "clicked", null, TimeSpan.FromMilliseconds(60)));
+                session.Raise(new AssistantTextEvent("Opened **Files**. The `Downloads` folder is sorted by date."));
+                session.SetState(AgentState.Idle);
+                return new TurnResult(TurnOutcome.Completed, "ok", new TurnStats(1200, 80, 2, 0.0012, TimeSpan.FromSeconds(4), "haiku"), null);
+            };
+
+            // Real keystrokes: typing goes to the input box and Enter sends.
+            await RunAsync("xdotool", "type", "--delay", "15", "hello from xdotool");
+            await RunAsync("xdotool", "key", "Return");
+            var first = await Task.WhenAny(sent.Task, Task.Delay(8000));
+            Check(first == sent.Task && sent.Task.Result == "hello from xdotool", "Enter sends the typed text (" + (sent.Task.IsCompleted ? sent.Task.Result : "nothing") + ")");
+
+            Check(await WaitFor("^DeskPilot$", false) != null, "main window minimizes while working");
+            var overlayId = await WaitFor("^DeskPilot status$", true);
+            Check(!string.IsNullOrEmpty(overlayId), "overlay is mapped");
+            if (string.IsNullOrEmpty(overlayId)) return;
+            await Task.Delay(500);
+            Check(await Active() != overlayId, "overlay did not take the focus");
+            var g = await Geometry(overlayId);
+            var pb = overlay.Window!.PhysicalBounds;
+            Ok($"overlay geometry {g}, physical bounds {pb}");
+            Check(g is { } gg && Math.Abs(gg.X + gg.W - (wa.Right - 16)) <= 6 && Math.Abs(gg.Y + gg.H - (wa.Bottom - 16)) <= 6, "overlay sits in the bottom-right corner of the working area");
+            Check(g is { } g2 && Math.Abs(g2.X - pb.X) <= 4 && Math.Abs(g2.Y - pb.Y) <= 4 && Math.Abs(g2.W - pb.Width) <= 4 && Math.Abs(g2.H - pb.Height) <= 4, "overlay bounds match what the controller uses");
+            var state = (await RunAsync("xprop", "-id", overlayId, "_NET_WM_STATE")).Out;
+            Check(state.Contains("_NET_WM_STATE_ABOVE"), "overlay is kept above (" + state.Trim() + ")");
+            Check(state.Contains("SKIP_TASKBAR"), "overlay has no taskbar entry");
+            await Shot("x11-overlay-working");
+
+            // Around a capture: hidden before the screenshot, back afterwards.
+            var sw = Stopwatch.StartNew();
+            await Task.Run(() => overlay.BeforeCaptureAsync(CancellationToken.None));
+            var hideMs = sw.ElapsedMilliseconds;
+            Check(await FindVisible("^DeskPilot status$") == null, $"overlay is unmapped when BeforeCaptureAsync returns ({hideMs} ms)");
+            Check(hideMs >= OverlayController.CaptureHideDelayMs, "capture waits for the compositor frame");
+            overlay.AfterCapture();
+            Check(await WaitFor("^DeskPilot status$", true, 3000) != null, "overlay comes back after the capture");
+
+            // Input aimed at the overlay hides it.
+            pb = overlay.Window!.PhysicalBounds;
+            await Task.Run(() => overlay.BeforeInputAsync(new ScreenPoint(pb.X + pb.Width / 2, pb.Y + pb.Height / 2), CancellationToken.None));
+            Check(await FindVisible("^DeskPilot status$") == null, "overlay hides for input aimed at it");
+            overlay.AfterInput();
+            Check(await WaitFor("^DeskPilot status$", true, 3000) != null, "overlay comes back after the input");
+            await Task.Delay(400);
+
+            // A real click on its Stop button (the window never activates, the button acts on press).
+            var stop = overlay.Window!.FindControl<Button>("StopButton")!;
+            var center = stop.TranslatePoint(new Point(stop.Bounds.Width / 2, stop.Bounds.Height / 2), overlay.Window!)!.Value;
+            var scale = overlay.Window!.DesktopScaling;
+            var pos = overlay.Window!.Position;
+            await RunAsync("xdotool", "mousemove", ((int)(pos.X + center.X * scale)).ToString(), ((int)(pos.Y + center.Y * scale)).ToString());
+            await Task.Delay(150);
+            await RunAsync("xdotool", "click", "1");
+            await Task.Delay(500);
+            Check(overlayStops == 1, $"clicking the overlay's Stop button stops ({overlayStops})");
+            Check(await Active() != overlayId, "the overlay still does not have the focus after the click");
+            await RunAsync("xdotool", "mousemove", "5", "500");
+
+            // Confirmation: topmost, focused, Enter means Deny.
+            var confirmation = new AvaloniaUserConfirmation();
+            var answer = Task.Run(() => confirmation.ConfirmAsync(new ProposedAction("run_command", "Run a shell command", ActionRisk.High, Command: "ls"), CancellationToken.None));
+            var confirmId = await WaitFor("allow this action", true);
+            Check(!string.IsNullOrEmpty(confirmId), "confirmation dialog is mapped");
+            await Task.Delay(600);
+            Check(await Active() == confirmId, "confirmation dialog has the focus");
+            var cstate = (await RunAsync("xprop", "-id", confirmId ?? "0", "_NET_WM_STATE")).Out;
+            Check(cstate.Contains("_NET_WM_STATE_ABOVE"), "confirmation dialog is kept above");
+            await Shot("x11-confirm");
+            await RunAsync("xdotool", "key", "Return");
+            var choice = await Task.WhenAny(answer, Task.Delay(5000)) == answer ? answer.Result.ToString() : "no answer";
+            Check(choice == "Deny", "Enter in the confirmation dialog denies (" + choice + ")");
+
+            using (var cts = new CancellationTokenSource())
+            {
+                var cancelled = Task.Run(() => confirmation.ConfirmAsync(new ProposedAction("click", "Click", ActionRisk.Medium), cts.Token));
+                Check(await WaitFor("allow this action", true) != null, "second confirmation dialog is mapped");
+                cts.Cancel();
+                var r = await Task.WhenAny(cancelled, Task.Delay(5000)) == cancelled ? cancelled.Result.ToString() : "no answer";
+                Check(r == "Deny", "cancelling closes the dialog as Deny (" + r + ")");
+                Check(await WaitFor("allow this action", false) != null, "the cancelled dialog is gone");
+            }
+
+            // The turn ends: the overlay goes away and the main window comes back.
+            release.SetResult();
+            Check(await WaitFor("^DeskPilot status$", false) != null, "overlay hides when the turn ends");
+            Check(await WaitFor("^DeskPilot$", true) != null, "main window is restored after the turn");
+            await Task.Delay(800);
+            await Shot("x11-main-after-turn");
+
+            try
+            {
+                using var tray = new TrayIconService();
+                tray.SetState(AgentState.Running);
+                Ok("tray icon created without a tray host");
+            }
+            catch (Exception ex)
+            {
+                Fail("tray icon threw: " + ex.Message);
+            }
+
+            main.AllowClose = true;
+            main.Close();
+            vm.Dispose();
+        }
+
+        sealed class FakeSession : IAgentSession
+        {
+            public event Action<AgentEvent>? EventRaised;
+            public event Action<AgentState>? StateChanged;
+            public AgentState State { get; private set; }
+            public string ActiveDescription => "fake";
+            public Func<string, CancellationToken, Task<TurnResult>>? OnSend { get; set; }
+            public void Raise(AgentEvent e) => EventRaised?.Invoke(e);
+            public void SetState(AgentState s) { State = s; StateChanged?.Invoke(s); }
+            public Task<TurnResult> SendAsync(string message, CancellationToken ct = default) => OnSend!(message, ct);
+            public Task StopAsync(string reason = "Stopped by user") => Task.CompletedTask;
+            public Task NewConversationAsync() => Task.CompletedTask;
+            public Task ReloadSettingsAsync() => Task.CompletedTask;
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
+
+        sealed class FakeCatalog : IModelCatalog
+        {
+            public Task<ModelListResult> ListModelsAsync(ProviderProfile profile, string apiKey, CancellationToken ct) =>
+                Task.FromResult(new ModelListResult(Array.Empty<ModelInfo>(), null));
+        }
+
+        sealed class FakeDetector : IEnvironmentDetector
+        {
+            public Task<EnvironmentReport> DetectAsync(CancellationToken ct) => Task.FromResult(App.EmptyEnvironmentReport());
+        }
+        """;
+
     /// <summary>Saves the X11 root window as PNG into $CI_LOGS (uploaded by CI) for a look at the real rendering.</summary>
     private static void SaveX11Snapshot(string name)
     {
@@ -1621,7 +1973,7 @@ public class LinuxUiMainTests
         var main = new MainWindow(vm) { Width = 1100, Height = 820 };
         main.Show();
         Dispatcher.UIThread.RunJobs();
-        main.CaptureRenderedFrame()?.Save(Path.Combine(dir, "main-empty.png"));
+        main.CaptureRenderedFrame()?.Save(Path.Combine(dir, "main-empty.png"), PngBitmapEncoderOptions.Default);
 
         vm.Conversation.AddLocalUserMessage("Open the files app and show me the Downloads folder sorted by date");
         vm.Conversation.Apply(new ThinkingEvent("The user wants the file manager. I will take a screenshot first."));
@@ -1636,7 +1988,7 @@ public class LinuxUiMainTests
         vm.Conversation.AddTurnResult(new TurnResult(TurnOutcome.Completed, "ok", new TurnStats(14200, 320, 3, 0.0042, TimeSpan.FromSeconds(18), "claude-haiku"), null));
         ui.RunAll();
         Dispatcher.UIThread.RunJobs();
-        main.CaptureRenderedFrame()?.Save(Path.Combine(dir, "main-log.png"));
+        main.CaptureRenderedFrame()?.Save(Path.Combine(dir, "main-log.png"), PngBitmapEncoderOptions.Default);
 
         var store = NewStore();
         using var overlay = new OverlayController(store, LinuxSessionKind.X11);
@@ -1644,25 +1996,25 @@ public class LinuxUiMainTests
         overlay.ApplyState(AgentState.Running);
         overlay.ViewModel.OnEvent(new ToolCallEvent("c1", "click", "{}", "Click at (512, 300) on 'Files'"));
         Dispatcher.UIThread.RunJobs();
-        overlay.Window!.CaptureRenderedFrame()?.Save(Path.Combine(dir, "overlay.png"));
+        overlay.Window!.CaptureRenderedFrame()?.Save(Path.Combine(dir, "overlay.png"), PngBitmapEncoderOptions.Default);
 
         var confirm = new ConfirmWindow(new ProposedAction("run_command", "Run a shell command", ActionRisk.High, Command: "rm -rf ~/build/output"));
         confirm.Show();
         Dispatcher.UIThread.RunJobs();
-        confirm.CaptureRenderedFrame()?.Save(Path.Combine(dir, "confirm.png"));
+        confirm.CaptureRenderedFrame()?.Save(Path.Combine(dir, "confirm.png"), PngBitmapEncoderOptions.Default);
         confirm.Close();
 
         var error = new StartupErrorWindow("No supported screen capture method was found for this Wayland session.",
             new[] { "Install grim (wlroots compositors) or enable the xdg-desktop-portal screenshot interface.", "Install wtype for keyboard input." }, "/home/user/.local/share/DeskPilot/logs/deskpilot.log");
         error.Show();
         Dispatcher.UIThread.RunJobs();
-        error.CaptureRenderedFrame()?.Save(Path.Combine(dir, "startup-error.png"));
+        error.CaptureRenderedFrame()?.Save(Path.Combine(dir, "startup-error.png"), PngBitmapEncoderOptions.Default);
         error.Close();
 
         var message = new MessageWindow("DeskPilot is working on a task", "Stop it and exit?", MessageKind.Question, "Stop and exit", "Keep working");
         message.Show();
         Dispatcher.UIThread.RunJobs();
-        message.CaptureRenderedFrame()?.Save(Path.Combine(dir, "message.png"));
+        message.CaptureRenderedFrame()?.Save(Path.Combine(dir, "message.png"), PngBitmapEncoderOptions.Default);
         message.Close();
 
         var themeSample = new Window
@@ -1705,7 +2057,7 @@ public class LinuxUiMainTests
         };
         themeSample.Show();
         Dispatcher.UIThread.RunJobs();
-        themeSample.CaptureRenderedFrame()?.Save(Path.Combine(dir, "theme.png"));
+        themeSample.CaptureRenderedFrame()?.Save(Path.Combine(dir, "theme.png"), PngBitmapEncoderOptions.Default);
         themeSample.Close();
 
         main.AllowClose = true;

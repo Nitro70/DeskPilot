@@ -50,7 +50,8 @@ public sealed class OverlayController : IInputActionObserver, ICaptureObserver, 
     public bool IsHiddenForInput => _hiddenForInput;
     public bool IsHiddenForCapture => _captures > 0;
     public bool IsWindowVisible => _window is { IsVisible: true };
-    internal OverlayWindow? Window => _window;
+    /// <summary>The overlay window once it was first shown (null before).</summary>
+    public OverlayWindow? Window => _window;
 
     /// <summary>Whether the overlay should be on screen right now.</summary>
     public bool ShouldBeVisible => !_disposed && _turnActive && _store.Current.Ui.ShowOverlay && !_hiddenForInput && _captures == 0;
