@@ -4,7 +4,8 @@ DeskPilot is a Windows desktop app (WPF, .NET 10, one self-contained exe) that l
 user's computer: it sees the screen through screenshots and acts with the mouse and keyboard. The default
 model provider is the user's own Claude subscription through the Claude Code CLI (no API key, no third
 party). Many other providers are supported. Nothing about any particular user is hard-coded: every path,
-key and model lives in `settings.json`.
+key and model lives in `settings.json`. A Linux version (Avalonia UI, X11 and Wayland) runs on the same
+core; see [Linux](#linux) at the end.
 
 ## Architecture
 
@@ -42,10 +43,10 @@ key and model lives in `settings.json`.
 | Folder | Contents |
 |---|---|
 | `src/DeskPilot.Core/Abstractions` | Interfaces and records shared by everything (foundation, do not change signatures) |
-| `src/DeskPilot.Core/Settings` | `AppSettings`, `SettingsStore`, `SecretProtector` (DPAPI), `ProviderPresets`, `AppPaths` |
+| `src/DeskPilot.Core/Settings` | `AppSettings`, `SettingsStore`, `SecretProtector` (DPAPI; AES-GCM key file on Linux), `ProviderPresets`, `AppPaths` |
 | `src/DeskPilot.Core/Runtime` | `AgentRunControl`, `ObservedToolHost`, `CompositeToolHost`, `JsonArgs`, `ExecutableLocator`, `CommandLine`, `Log` |
 | `src/DeskPilot.Core/Prompts` | `DefaultPrompts` (built-in computer-use prompt), `PromptBuilder` (placeholders) |
-| `src/DeskPilot.Core/Desktop` | Win32 implementations of the desktop interfaces |
+| `src/DeskPilot.Desktop.Windows` | Win32 implementations of the desktop interfaces (the Linux ones: see [Linux](#linux)) |
 | `src/DeskPilot.Core/Tools` | `ComputerToolHost` (the computer tools), `CoordinateMapper` |
 | `src/DeskPilot.Core/Safety` | `SafetyGuard` |
 | `src/DeskPilot.Core/Vault` | `VaultToolHost`, vault index/search, `ObsidianVaultDetector` |
@@ -272,3 +273,126 @@ or the step limit. Conversation is kept between turns until `ResetConversationAs
   Allow all for this request; topmost, excluded from capture.
 * First run: detect environment, auto-add detected providers, show a short welcome explaining the Claude
   subscription default, the optional vault and the stop hotkey.
+
+## Linux
+
+The Linux version reuses `DeskPilot.Core` unchanged (it targets plain `net10.0`); only the desktop layer and
+the UI are new. Core code that differs by OS checks `OperatingSystem.IsWindows()` / `IsLinux()` itself:
+`PromptBuilder` (the `{{OS}}` line names the distribution, the X11 or Wayland session and the desktop;
+Linux app-finding tips; a sudo/pkexec/polkit safety rule instead of UAC), `ComputerToolHost` (`run_command`
+shells are `bash` and `sh`; zsh and fish map to bash), `ExecutableLocator` (PATH plus `~/.local/bin`,
+`~/.claude/local`, npm, bun, nvm, snap and Flatpak folders; the file must be executable),
+`ObsidianVaultDetector` (`~/.config/obsidian`, plus the Flatpak and Snap sandboxes) and `SecretProtector`
+(below). The MCP server and bridge, the Claude CLI / ACP / HTTP backends and `AgentSession` run as they are.
+`tests/DeskPilot.Linux.Tests/CoreOnLinuxTests.cs` checks these on real Linux.
+
+### Project layout
+
+| Folder | Contents |
+|---|---|
+| `src/DeskPilot.Desktop.Linux` | The Linux desktop layer (SkiaSharp, Tmds.DBus.Protocol). `LinuxSession` detects the session, `LinuxDesktopFactory` builds the `DesktopServices` for it and lists missing helper tools, `FrameEncoder` scales and encodes captures and draws the cursor and grid for both routes |
+| `src/DeskPilot.Desktop.Linux/X11` | `X11ScreenCapture`, `X11InputSimulator`, `X11WindowManager`, `X11GlobalHotkey`: native Xlib and XTest through P/Invoke |
+| `src/DeskPilot.Desktop.Linux/Wayland` | `WaylandScreenCapture`, `WaylandInputSimulator`, `WaylandWindowManager`: compositor tools on wlroots, xdg-desktop-portal elsewhere |
+| `src/DeskPilot.Desktop.Linux/Services` | Session-independent services: `AtSpiInspector` (`ui_elements` over the AT-SPI accessibility bus), `LinuxAppLauncher`, `LinuxClipboard`, `LinuxShellRunner`, `LinuxProcessInfo` (process names, root detection and polkit prompt detection from `/proc`) |
+| `src/DeskPilot.Linux` | The Avalonia 12 app, assembly and executable `deskpilot`. `Program` handles `--mcp-bridge` before any UI starts; main window, settings and welcome windows, overlay, tray |
+| `tests/DeskPilot.Linux.Tests` | xUnit v3. `[LinuxFact]`, `[X11Fact]` and `[WaylandFact]` tests run only on Linux or inside the matching session; the rest run anywhere, so the project also builds and passes on Windows |
+| `packaging/linux` | `deskpilot.desktop`, icons, `install.sh` / `uninstall.sh` (per user, no root), `build-package.sh` (tar.gz and AppImage), `check-package.sh` (what CI checks in the packages) |
+| `ci/` | `run-linux-tests.sh` (starts the sessions), `sway-headless.conf`, and per-module hooks: `apt/*.txt`, `setup.d/*.sh`, `session.d/*.sh` |
+
+The app uses Avalonia's X11 backend, so on Wayland desktops its windows run through Xwayland. That backend
+sets `WM_CLASS` to (process name, entry assembly name), both `deskpilot`, which is the `StartupWMClass` of
+the menu entry (CI checks the real window under Xvfb).
+
+### Session detection
+
+`LinuxSession.Detect()` reads the environment: `DESKPILOT_SESSION=x11|wayland` overrides everything (for
+example to force the X11 route under Xwayland); otherwise `XDG_SESSION_TYPE` decides, and without it
+`WAYLAND_DISPLAY` wins over `DISPLAY` (Xwayland also sets `DISPLAY`). `XDG_CURRENT_DESKTOP` names the
+desktop (`IsGnome`, `IsKde`, `IsWlroots` for sway, Hyprland, river, wayfire, labwc and niri, `IsCosmic`).
+`LinuxDesktopFactory.CreateFor(session)` picks the X11 or Wayland implementations plus the shared services;
+`DescribeMissingTools(session)` lists the helper programs that session's route still needs, for the welcome
+window. `packaging/linux/install.sh` repeats the same checks in shell so the installer can print the right
+package names before DeskPilot first runs; keep the two in step.
+
+### X11 route
+
+Everything goes through Xlib on DeskPilot's own display connections, without helper processes: screen
+capture of the monitors, mouse and keyboard through the XTest extension, the window list, focus and
+process ids from the properties the window manager maintains, and the global stop hotkey through
+`XGrabKey` on a separate connection and thread. The clipboard uses `xclip` or `xsel`. X11 lets any client
+of the display do all of this without asking, which is why it is the recommended session. The sources
+in `src/DeskPilot.Desktop.Linux/X11` have the details.
+
+### Wayland route
+
+Wayland gives ordinary clients no way to read the screen or inject input, so the route depends on the
+compositor:
+
+* **wlroots compositors** (sway, Hyprland, river, wayfire, labwc, niri): `grim` takes screenshots, `wtype`
+  types and presses keys, and the compositor's IPC (`swaymsg`, `hyprctl`) lists and focuses windows and
+  drives the pointer; other wlroots compositors use `wlrctl`, `ydotool` or `dotool` for the pointer.
+* **GNOME, KDE Plasma, COSMIC**: xdg-desktop-portal over D-Bus. The Screenshot portal shows the desktop's
+  permission prompt; the RemoteDesktop portal asks once for mouse and keyboard control. Where that portal
+  is missing (COSMIC, for example), `ydotool` or `dotool` inject input through `/dev/uinput`.
+* `wl-clipboard` (`wl-copy`, `wl-paste`) is the clipboard everywhere.
+
+There is no global hotkey on Wayland; the Stop buttons, the tray icon and the failsafe corner remain (the
+corner only where the pointer position can be read). The sources in `src/DeskPilot.Desktop.Linux/Wayland`
+have the details.
+
+### DeskPilot's own windows in screenshots (ICaptureObserver)
+
+On Windows the overlay, the main window and dialogs are excluded from capture with
+`SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)`. Neither X11 nor Wayland has anything like it: a
+screenshot shows every window on screen. So the Linux UI implements `ICaptureObserver` on the same object
+as `IInputActionObserver`: `ComputerToolHost` calls `BeforeCaptureAsync` right before every capture (the
+overlay hides and waits until the screen has been redrawn without it) and `AfterCapture` right after (it
+shows again). The main window minimizes while the agent works. The model therefore does not see
+DeskPilot's own UI, and the rule that DeskPilot's windows are never a target still holds through the
+process id the window managers report.
+
+### API keys on Linux
+
+There is no DPAPI. `SecretProtector` encrypts keys with AES-GCM (random 96-bit nonce, 128-bit tag, and the
+`DeskPilot.ApiKey.v1` value DPAPI uses as entropy as associated data) under a random 256-bit key, stored
+base64 in `~/.config/DeskPilot/.secret-key`. The key file is written under a temporary name, set to mode
+0600 and then renamed into place. Stored values start with `aesgcm:`; a DPAPI value copied from Windows, a
+tampered value, or a value encrypted under another key all read back as empty instead of failing. This is
+the protection of desktop apps that do not use a keyring: keys stay out of the plain-text settings and
+anything copied from them, but not out of reach of programs running as the same user.
+
+### MCP bridge on Linux
+
+.NET implements named pipes on Linux as Unix domain sockets at `$TMPDIR/CoreFxPipe_<pipe name>` (the path
+must stay under the 108-byte `sun_path` limit; the default `/tmp` easily does). `PipeOptions.CurrentUserOnly`
+makes both ends check that the peer runs as the same user, and the session token is still required, so
+the protection matches the Windows pipe. The socket file is removed when the server is disposed. When
+DeskPilot runs from the AppImage, its own path is inside the mounted image, which exists for exactly as
+long as DeskPilot runs, and that is all the bridge needs.
+
+### Packaging
+
+`packaging/linux/build-package.sh <rid>` publishes the single-file, self-contained program and writes
+`DeskPilot-<version>-<rid>.tar.gz` (program, `install.sh`, `uninstall.sh`, menu entry, icons, README,
+LICENSE) and, for linux-x64, `DeskPilot-<version>-x86_64.AppImage` (an AppDir with `AppRun`, the menu
+entry, the icon, `usr/bin/deskpilot` and the hicolor icons, packed by appimagetool with a pinned type 2
+runtime). Without a working appimagetool the AppImage is skipped with a warning. `install.sh` installs for
+one user only (`~/.local/bin`, `~/.local/share/applications` with an absolute `Exec`,
+`~/.local/share/icons/hicolor`), refreshes menu and icon caches only where they already exist, and
+`uninstall.sh` removes exactly those files, leaving settings and logs alone.
+
+### CI
+
+`.github/workflows/linux.yml` runs on ubuntu-24.04. The test job builds `tests/DeskPilot.Linux.Tests` and
+runs it through `ci/run-linux-tests.sh`, once per session, each inside a real but invisible session with
+its own D-Bus session bus:
+
+* **x11**: Xvfb at 1920x1080 with the openbox window manager and the AT-SPI bus;
+* **wayland**: headless sway (wlroots, pixman renderer, no input devices, no Xwayland) at 1920x1080.
+
+`DESKPILOT_TEST_SESSION` tells the tests which one they are in. Each module adds its packages in
+`ci/apt/<module>.txt`, root setup in `ci/setup.d/<module>.sh` and session variables in
+`ci/session.d/<module>.sh`. The package job then builds the tar.gz for linux-x64 and linux-arm64 and the
+x86-64 AppImage, lints the scripts with shellcheck and runs `check-package.sh`: archive contents and
+modes, an install and uninstall round trip in a scratch home, both packages starting in bridge mode, and
+the window's `WM_CLASS` under Xvfb. Tags `v*` attach the packages to the GitHub release.

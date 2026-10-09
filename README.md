@@ -159,7 +159,8 @@ Screenshots and your requests are sent to the model provider you choose (Anthrop
 Claude setup, or your local machine for Ollama / LM Studio). DeskPilot itself sends nothing anywhere
 else, stores no screenshots on disk, and never logs API keys. Settings live in
 `%APPDATA%\DeskPilot\settings.json`; logs in `%LOCALAPPDATA%\DeskPilot\logs`. Put an empty file named
-`portable.txt` next to the exe to keep everything in a `DeskPilotData` folder beside it instead.
+`portable.txt` next to the exe to keep everything in a `DeskPilotData` folder beside it instead. On
+Linux the same files live in `~/.config/DeskPilot` and `~/.local/share/DeskPilot/logs`.
 
 ## How it works
 
@@ -180,6 +181,25 @@ dotnet publish src/DeskPilot/DeskPilot.csproj -c Release -r win-x64
 ```
 
 The last command writes the single-file `DeskPilot.exe` to `bin/publish/`.
+
+### On Linux
+
+Requirements: the .NET 10 SDK. The solution also contains the Windows projects, so build the Linux ones
+directly:
+
+```
+dotnet build tests/DeskPilot.Linux.Tests
+dotnet test tests/DeskPilot.Linux.Tests
+dotnet publish src/DeskPilot.Linux/DeskPilot.Linux.csproj -c Release -r linux-x64
+sh packaging/linux/install.sh
+```
+
+The publish writes the single-file program `deskpilot` to `bin/publish-linux-x64/` (use `-r linux-arm64`
+on ARM), and `install.sh` run from the source tree installs that build for your user.
+`bash packaging/linux/build-package.sh linux-x64` makes the release files in `artifacts/`: the tar.gz,
+and the AppImage when [appimagetool](https://github.com/AppImage/appimagetool) is on your PATH (or
+named by `APPIMAGETOOL`). Tests that need a real desktop run inside Xvfb and headless sway; see
+`ci/run-linux-tests.sh`.
 
 ## License
 

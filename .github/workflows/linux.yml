@@ -71,10 +71,6 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends desktop-file-utils file shellcheck xvfb xauth x11-utils
 
-      - name: Lint packaging scripts
-        if: matrix.rid == 'linux-x64'
-        run: shellcheck packaging/linux/*.sh
-
       - name: Download appimagetool
         if: matrix.rid == 'linux-x64'
         run: |
@@ -94,7 +90,12 @@ jobs:
         if: matrix.rid == 'linux-x64'
         run: bash packaging/linux/check-package.sh artifacts
 
+      - name: Lint packaging scripts
+        if: matrix.rid == 'linux-x64'
+        run: shellcheck packaging/linux/*.sh
+
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: DeskPilot-${{ matrix.rid }}
           path: artifacts/*

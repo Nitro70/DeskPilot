@@ -22,6 +22,7 @@ export DOTNET_BUNDLE_EXTRACT_BASE_DIR="$work/bundle"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 ok() { echo "ok: $*"; }
+indent() { while IFS= read -r line; do printf '  | %s\n' "$line"; done <<<"$1"; }
 warn() {
   if [ -n "${GITHUB_ACTIONS:-}" ]; then echo "::warning::$*"; else echo "WARNING: $*" >&2; fi
 }
@@ -76,7 +77,7 @@ echo keep > "$home/.local/share/icons/hicolor/256x256/apps/other.png"
 as_user() { env -i HOME="$home" PATH="/usr/local/bin:/usr/bin:/bin" LANG=C.UTF-8 "$@"; }
 
 out="$(as_user sh "$dir/install.sh")" || fail "install.sh failed: $out"
-echo "$out" | sed 's/^/  | /'
+indent "$out"
 grep -q "DeskPilot is installed for" <<<"$out" || fail "install.sh did not report the install"
 grep -q "Desktop session: none detected" <<<"$out" || fail "install.sh did not report the (missing) session"
 cmp "$dir/deskpilot" "$home/.local/bin/deskpilot" || fail "installed program differs"
@@ -92,7 +93,7 @@ as_user sh "$dir/install.sh" >/dev/null || fail "installing over an existing ins
 ok "install.sh updates an existing install"
 
 out="$(as_user sh "$dir/uninstall.sh")" || fail "uninstall.sh failed: $out"
-echo "$out" | sed 's/^/  | /'
+indent "$out"
 left="$(cd "$home" && find . -type f -o -type l | sort | tr '\n' ' ')"
 [ "$left" = "./.local/bin/other-tool ./.local/share/applications/other.desktop ./.local/share/icons/hicolor/256x256/apps/other.png " ] \
   || fail "uninstall.sh left or removed the wrong files: $left"
@@ -126,7 +127,9 @@ else
            usr/share/icons/hicolor/128x128/apps/deskpilot.png; do
     [ -e "$sq/$f" ] || fail "AppImage lacks $f"
   done
-  [ -x "$sq/AppRun" ] && [ -x "$sq/usr/bin/deskpilot" ] || fail "AppRun or usr/bin/deskpilot is not executable"
+  for f in AppRun usr/bin/deskpilot; do
+    [ -x "$sq/$f" ] || fail "the AppImage's $f is not executable"
+  done
   cmp "$dir/deskpilot" "$sq/usr/bin/deskpilot" || fail "the AppImage's program differs from the tar.gz one"
   desktop-file-validate "$sq/deskpilot.desktop" || fail "the AppImage's deskpilot.desktop does not validate"
   ok "AppImage extracts to AppRun, deskpilot.desktop, the icon and usr/bin/deskpilot (same program as the tar.gz)"

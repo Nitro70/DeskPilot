@@ -52,7 +52,7 @@ else
   if [ -f "$apps_dir/mimeinfo.cache" ] && have update-desktop-database; then
     update-desktop-database -q "$apps_dir" 2>/dev/null || true
   fi
-  [ -d "$icons_dir" ] && touch "$icons_dir" 2>/dev/null || true
+  if [ -d "$icons_dir" ]; then touch "$icons_dir" 2>/dev/null || true; fi
   if [ -f "$icons_dir/icon-theme.cache" ] && have gtk-update-icon-cache; then
     gtk-update-icon-cache -q -t -f "$icons_dir" 2>/dev/null || true
   fi
