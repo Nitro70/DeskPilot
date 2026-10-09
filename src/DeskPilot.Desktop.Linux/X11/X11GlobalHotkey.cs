@@ -64,6 +64,13 @@ public sealed unsafe class X11GlobalHotkey : IDisposable
                 return null;
             }
 
+            if (combo.Has("ctrl") && combo.Has("alt") && ServerAction(keymap.GetAll(choice.Value.Keycode)) is { } action)
+            {
+                error = $"{name} {action} on X11, so DeskPilot would never see it; choose another combination such as Ctrl+Alt+X";
+                Close(display);
+                return null;
+            }
+
             var masks = ReadModifierMasks(display);
             uint modifiers = 0;
             if (combo.Has("ctrl")) modifiers |= X.ControlMask;
@@ -162,6 +169,22 @@ public sealed unsafe class X11GlobalHotkey : IDisposable
         try { Xlib.XCloseDisplay(display); }
         catch (Exception) { }
         XErrorTrap.Unregister(display);
+    }
+
+    /// <summary>
+    /// XKB binds Ctrl+Alt on some keys to X server actions (F1-F12 switch virtual terminals, Backspace may stop the
+    /// server). The server consumes those presses before any grab sees them, so such a hotkey could never fire.
+    /// Returns what the key does, or null. <paramref name="keysyms"/> is the key's whole core-mapping row.
+    /// </summary>
+    internal static string? ServerAction(IEnumerable<uint> keysyms)
+    {
+        foreach (var ks in keysyms)
+        {
+            if (ks is >= 0x1008FE01 and <= 0x1008FE0C) return $"switches to virtual terminal {ks - 0x1008FE00}";
+            if (ks == 0xfed5) return "can stop the X server";
+            if (ks is >= 0x1008FE0D and <= 0x1008FEFF) return "is an X server action";
+        }
+        return null;
     }
 
     internal readonly record struct ModifierMasks(uint Alt, uint Super, uint NumLock, uint ScrollLock);

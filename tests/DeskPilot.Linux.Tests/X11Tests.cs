@@ -416,6 +416,16 @@ public class X11PixelAndParsingTests
     }
 
     [Fact]
+    public void Server_action_keys_are_recognized()
+    {
+        // The F12 row of the default XKB keymap as read in CI.
+        Assert.Equal("switches to virtual terminal 12",
+            X11GlobalHotkey.ServerAction(new uint[] { 0xffc9, 0xffc9, 0xffc9, 0xffc9, 0xffc9, 0xffc9, 0x1008fe0c }));
+        Assert.Equal("can stop the X server", X11GlobalHotkey.ServerAction(new uint[] { 0xff08, 0xff08, 0xff08, 0xff08, 0xfed5 }));
+        Assert.Null(X11GlobalHotkey.ServerAction(new uint[] { 'x', 'X', 'x', 'X' }));
+    }
+
+    [Fact]
     public void Modifier_map_lookup()
     {
         // 2 keys per modifier; rows Shift, Lock, Control, Mod1..Mod5.
@@ -684,8 +694,114 @@ public sealed class X11DesktopTests : IDisposable
         _input.PressCombo(KeyCombo.Parse("end"));
         _input.PressCombo(KeyCombo.Parse("backspace"));
         _input.PressCombo(KeyCombo.Parse("shift+1"));
+        // A key that is not on the layout, as a combo and held down (both bind a spare keycode for the press).
+        _input.PressCombo(KeyCombo.Parse("€"));
+        _input.KeyDown("ö");
+        _input.KeyUp("ö");
+        // Shift held through KeyDown applies to the next key.
+        _input.KeyDown("shift");
+        _input.PressCombo(KeyCombo.Parse("a"));
+        _input.KeyUp("shift");
         _input.PressCombo(KeyCombo.Parse("enter"));
-        Assert.Equal(text[..^1] + "!", ReadOutput(p));
+        Assert.Equal(text[..^1] + "!€öA", ReadOutput(p));
+        Assert.Empty(_input.PressedKeys);
+    }
+
+    [X11Fact]
+    public void Minimized_windows_are_reported_and_focus_restores_them()
+    {
+        var title = UniqueTitle();
+        Start("xterm", "-T", title, "-geometry", "50x10+400+400", "-e", "sleep", "60");
+        var w = WaitForWindow(title);
+        var (exit, output) = CiEnvironmentTests.Run("xdotool", "windowminimize", ((ulong)w.Handle).ToString());
+        Assert.True(exit == 0, output);
+        Assert.True(WaitUntil(() => _windows.ListWindows().Any(x => x.Handle == w.Handle && x.IsMinimized), 3000), "not reported as minimized");
+        Assert.NotEqual(w.Handle, _windows.GetWindowAt(w.Bounds.Center.X, w.Bounds.Center.Y)?.Handle);
+
+        Assert.True(_windows.FocusWindow(w.Handle));
+        var restored = _windows.ListWindows().Single(x => x.Handle == w.Handle);
+        Assert.False(restored.IsMinimized);
+        Assert.True(restored.IsForeground);
+    }
+
+    [X11Fact]
+    public void Dragging_a_title_bar_moves_the_window()
+    {
+        var title = UniqueTitle();
+        Start("xterm", "-T", title, "-geometry", "50x10+300+300", "-e", "sleep", "60");
+        var w = WaitForWindow(title);
+        var client = _windows.GetClientRect(w.Handle)!.Value;
+        Assert.True(client.Y > w.Bounds.Y, $"no title bar above the client area: frame {w.Bounds}, client {client}");
+
+        var from = new ScreenPoint(client.Center.X, (w.Bounds.Y + client.Y) / 2);
+        _input.MoveMouse(from.X, from.Y);
+        _input.MouseDown(MouseButton.Left);
+        _input.MoveMouseSmooth(from.X + 200, from.Y + 150, 300);
+        _input.MouseUp(MouseButton.Left);
+
+        Assert.True(WaitUntil(() =>
+        {
+            var now = _windows.ListWindows().Single(x => x.Handle == w.Handle).Bounds;
+            return Math.Abs(now.X - (w.Bounds.X + 200)) <= 3 && Math.Abs(now.Y - (w.Bounds.Y + 150)) <= 3;
+        }, 3000), "window is at " + _windows.ListWindows().Single(x => x.Handle == w.Handle).Bounds + ", was " + w.Bounds);
+    }
+
+    [X11Fact]
+    public void Double_and_triple_clicks_select_a_word_and_a_line()
+    {
+        var title = UniqueTitle();
+        Start("xterm", "-T", title, "-geometry", "50x6+300+700", "-e", "sh", "-c", "echo DeskPilotWord second; sleep 60");
+        var w = WaitForWindow(title);
+        var client = _windows.GetClientRect(w.Handle)!.Value;
+        Thread.Sleep(500);
+
+        // First text row of xterm: a few pixels in from the client area's top-left corner.
+        _input.MoveMouse(client.X + 20, client.Y + 8);
+        _input.Click(MouseButton.Left, 2);
+        Assert.True(WaitUntil(() => PrimarySelection() == "DeskPilotWord", 3000), "selection: " + PrimarySelection());
+        _input.Click(MouseButton.Left, 3);
+        Assert.True(WaitUntil(() => PrimarySelection() == "DeskPilotWord second", 3000), "selection: " + PrimarySelection());
+    }
+
+    private static string PrimarySelection()
+    {
+        var (_, output) = CiEnvironmentTests.Run("xclip", "-o", "-selection", "primary");
+        return output.Trim();
+    }
+
+    [X11Fact]
+    public void Wheel_scrolls_an_xterm_back_and_forth()
+    {
+        var title = UniqueTitle();
+        Start("xterm", "-T", title, "-sl", "500", "-geometry", "50x10+1100+200", "-e", "sh", "-c", "seq 1 300; sleep 60");
+        var w = WaitForWindow(title);
+        var client = _windows.GetClientRect(w.Handle)!.Value;
+        Thread.Sleep(500);
+        _input.MoveMouse(client.Center.X, client.Center.Y);
+        Thread.Sleep(200);
+
+        byte[] Shot() => _capture.Capture(new CaptureRequest(client, client.Width, client.Height, ImageFormatKind.Png, 90, false, 0)).Data;
+        var before = Shot();
+        _input.Scroll(0, -3);
+        Thread.Sleep(400);
+        var up = Shot();
+        _input.Scroll(0, 3);
+        Thread.Sleep(400);
+        var back = Shot();
+
+        Assert.True(DifferentPixels(before, up) > 100, "scrolling up changed nothing");
+        Assert.True(DifferentPixels(before, back) < 50, "scrolling down did not return to the end");
+    }
+
+    private static int DifferentPixels(byte[] a, byte[] b)
+    {
+        using var x = SKBitmap.Decode(a);
+        using var y = SKBitmap.Decode(b);
+        int n = 0;
+        for (int i = 0; i < x.Width; i++)
+            for (int j = 0; j < x.Height; j++)
+                if (x.GetPixel(i, j) != y.GetPixel(i, j)) n++;
+        return n;
     }
 
     [X11Fact]
@@ -708,13 +824,18 @@ public sealed class X11DesktopTests : IDisposable
     public void Global_hotkey_with_shift_and_a_function_key() => HotkeyRoundTrip("ctrl+shift+f12", "Ctrl+Shift+F12");
 
     [X11Fact]
-    public void Global_hotkey_ctrl_alt_f12_diagnostic()
+    public void Global_hotkey_refuses_ctrl_alt_function_keys_that_switch_terminals()
     {
+        // XKB binds Ctrl+Alt+F1..F12 to a VT switch; the server consumes the press before any grab (verified in CI:
+        // a grab of Ctrl+Alt+F12 never fired), so registering it must fail with a reason instead of never firing.
         var keymap = _input.KeymapForTests();
         X11Keysyms.TryGetKeysym("f12", out var f12, out _);
         var key = keymap.FindKeysym(f12);
         _out.WriteLine($"F12 keycode {key?.Keycode}: " + string.Join(" ", keymap.GetAll(key?.Keycode ?? 0).Select(s => "0x" + s.ToString("x"))));
-        HotkeyRoundTrip("ctrl+alt+f12", "Ctrl+Alt+F12");
+
+        var hotkey = X11GlobalHotkey.TryRegister(KeyCombo.Parse("ctrl+alt+f12"), () => { }, out var error);
+        Assert.Null(hotkey);
+        Assert.Equal("Ctrl+Alt+F12 switches to virtual terminal 12 on X11, so DeskPilot would never see it; choose another combination such as Ctrl+Alt+X", error);
     }
 
     private void HotkeyRoundTrip(string text, string display)

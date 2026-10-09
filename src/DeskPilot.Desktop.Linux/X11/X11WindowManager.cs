@@ -103,6 +103,18 @@ public sealed unsafe class X11WindowManager : IWindowManager, IDisposable
         catch (Exception) { return false; }
     }
 
+    /// <summary>The client area (without the window manager's frame) in root coordinates, or null.</summary>
+    internal ScreenRect? GetClientRect(nint handle)
+    {
+        using var lease = _conn.Acquire();
+        XWindowAttributes attrs;
+        int cx, cy;
+        nuint child;
+        if (Xlib.XGetWindowAttributes(lease.Display, (nuint)handle, &attrs) == 0) { lease.Sync(); return null; }
+        Xlib.XTranslateCoordinates(lease.Display, (nuint)handle, lease.Root, 0, 0, &cx, &cy, &child);
+        return lease.Sync() == null ? new ScreenRect(cx, cy, attrs.width, attrs.height) : null;
+    }
+
     // ---------------------------------------------------------------- reading windows
 
     internal readonly record struct WindowFacts(WindowInfo Info, bool Viewable, nuint? Desktop, string? Type);
