@@ -566,7 +566,10 @@ public class AtSpiLogicTests
 
         Assert.Same(main, AtSpiInspector.ChooseFrame(list, "Document 1 - Writer", pidMatched: true));
         Assert.Same(prefs, AtSpiInspector.ChooseFrame(list, "  preferences ", pidMatched: true));
-        Assert.Same(main, AtSpiInspector.ChooseFrame(list, "Document 1 - Writer (modified)", pidMatched: false));
+        Assert.Same(main, AtSpiInspector.ChooseFrame(list, "Document 1 - Writer (modified)", pidMatched: true));
+        // Another process's frame must carry the title itself.
+        Assert.Null(AtSpiInspector.ChooseFrame(list, "Document 1 - Writer (modified)", pidMatched: false));
+        Assert.Same(main, AtSpiInspector.ChooseFrame(list, "document 1 - writer", pidMatched: false));
         // No title match within the window's own process: the active frame.
         Assert.Same(prefs, AtSpiInspector.ChooseFrame(list, "Something else", pidMatched: true));
         Assert.Null(AtSpiInspector.ChooseFrame(list, "Something else", pidMatched: false));
@@ -878,6 +881,13 @@ public class LinuxLauncherTests : IDisposable
         Assert.True(result.Success, result.Message);
         Assert.True(await WaitForFileAsync(output, TimeSpan.FromSeconds(10)));
         Assert.Equal("hello there", File.ReadAllText(output).Trim());
+
+        // A command with its arguments written into the target itself.
+        var output2 = Path.Combine(_root, "script-out-2.txt");
+        var inline = Launcher().Launch($"sh '{script}' 'from target' '{output2}'", null, allowElevation: false);
+        Assert.True(inline.Success, inline.Message);
+        Assert.True(await WaitForFileAsync(output2, TimeSpan.FromSeconds(10)));
+        Assert.Equal("from target", File.ReadAllText(output2).Trim());
 
         var missing = Launcher().Launch(Path.Combine(_root, "nope", "x.txt"), null, allowElevation: false);
         Assert.False(missing.Success);

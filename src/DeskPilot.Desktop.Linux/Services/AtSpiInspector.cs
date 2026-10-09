@@ -249,9 +249,11 @@ public sealed class AtSpiInspector : IUiInspector
     }
 
     /// <summary>
-    /// Picks the frame for a window title among toplevels. Title: exact, then ignoring case and outer spaces, then one
-    /// containing the other. When the toplevels are the window's own process (pidMatched) and no title matches: the
-    /// only shown one, else the active one, else the first shown one.
+    /// Picks the frame for a window title among toplevels. Title: exact, then ignoring case and outer spaces, then (only
+    /// within the window's own process, pidMatched) one containing the other. Other applications' frames must match the
+    /// title itself, so a window whose app publishes nothing is never mixed up with a similar title elsewhere.
+    /// Within the window's own process and without a title match: the only shown one, else the active one, else the
+    /// first shown one.
     /// </summary>
     internal static Toplevel? ChooseFrame(IReadOnlyList<Toplevel> toplevels, string? title, bool pidMatched)
     {
@@ -262,7 +264,7 @@ public sealed class AtSpiInspector : IUiInspector
         {
             var hit = pool.FirstOrDefault(t => t.Name == title)
                       ?? pool.FirstOrDefault(t => string.Equals(t.Name.Trim(), t0, StringComparison.OrdinalIgnoreCase));
-            if (hit == null && t0.Length >= 3)
+            if (hit == null && pidMatched && t0.Length >= 3)
             {
                 hit = pool.FirstOrDefault(t => t.Name.Trim().Length >= 3 &&
                     (t0.Contains(t.Name.Trim(), StringComparison.OrdinalIgnoreCase) || t.Name.Contains(t0, StringComparison.OrdinalIgnoreCase)));
@@ -655,6 +657,9 @@ public sealed class AtSpiInspector : IUiInspector
                 if (!popupExtents[i].IsEmpty && popupExtents[i].Contains(x, y)) { root = popups[i].Ref; break; }
             }
         }
+
+        // Without a window from the window manager the active frame was taken: it must actually be under the point.
+        if (target == null && root == frame.Ref && !frameBounds.IsEmpty && !frameBounds.Contains(x, y)) return null;
 
         int qx = x - offset.Dx, qy = y - offset.Dy;
         var current = root;

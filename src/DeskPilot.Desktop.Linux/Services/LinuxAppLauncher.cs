@@ -229,6 +229,11 @@ public sealed partial class LinuxAppLauncher : IAppLauncher
         var best = DesktopEntries.FindBest(entries, name, DesktopEntries.CurrentDesktops(_env));
         if (best != null) return LaunchEntry(best.Entry, args, allowElevation);
 
+        // "gedit notes.txt": a command with its arguments written into the target.
+        var words = LinuxTools.SplitArguments(name);
+        if (words.Count > 1 && ResolveCommand(words[0]) is { } program)
+            return StartProgram(program, words.Skip(1).Concat(args).ToList(), allowElevation, Home);
+
         return new LaunchResult(false,
             $"Could not find an app, file, folder or URL called '{name}'. Try the name shown in the app menu, the program's command name, a full path, or a URL.",
             null);
