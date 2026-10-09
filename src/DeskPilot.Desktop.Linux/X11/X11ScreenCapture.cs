@@ -208,13 +208,9 @@ public sealed unsafe class X11ScreenCapture : IScreenCapture, IDisposable
     /// <summary>DPI scale from the Xft.dpi resource (what GTK, Qt and most desktops set for HiDPI), else 1.0.</summary>
     private double ReadScale(in XConnection.Lease lease)
     {
-        // The live RESOURCE_MANAGER property first: XResourceManagerString is a copy taken when the connection opened.
+        // The live RESOURCE_MANAGER property of the root window. XResourceManagerString holds the same text, but
+        // Xlib copies it once when the connection opens and would miss a later `xrdb` change.
         var resources = XProps.GetText(lease.Display, lease.Root, _atoms.Get(lease, "RESOURCE_MANAGER"), X.XA_STRING, X.None);
-        if (resources == null)
-        {
-            var p = Xlib.XResourceManagerString(lease.Display);
-            resources = X11Native.FromCString(p);
-        }
         lease.Sync();
         var dpi = ParseXftDpi(resources);
         return dpi is > 0 ? Math.Round(dpi.Value / 96.0, 3) : 1.0;

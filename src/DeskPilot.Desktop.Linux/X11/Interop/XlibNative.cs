@@ -67,8 +67,6 @@ internal static unsafe class Xlib
     [DllImport(Lib)] public static extern int XUngrabKey(nint display, int keycode, uint modifiers, nuint grabWindow);
     [DllImport(Lib)] public static extern int XPending(nint display);
     [DllImport(Lib)] public static extern int XNextEvent(nint display, XEvent* ev);
-
-    [DllImport(Lib)] public static extern byte* XResourceManagerString(nint display);
 }
 
 internal static unsafe class Xtst
