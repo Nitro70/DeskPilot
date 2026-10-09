@@ -200,6 +200,13 @@ public sealed unsafe class X11InputSimulator : IInputSimulator, IDisposable
         return (mask, down);
     }
 
+    /// <summary>Test hook: the current keyboard mapping.</summary>
+    internal X11Keymap KeymapForTests()
+    {
+        using var lease = _conn.Acquire();
+        return LoadKeymap(lease.Display);
+    }
+
     /// <summary>Eased (cubic in/out) path; the last point is exactly the target.</summary>
     internal static IReadOnlyList<ScreenPoint> SmoothPath(ScreenPoint from, ScreenPoint to, int steps)
     {

@@ -702,21 +702,36 @@ public sealed class X11DesktopTests : IDisposable
     }
 
     [X11Fact]
-    public void Global_hotkey_fires_and_reports_conflicts()
+    public void Global_hotkey_fires_and_reports_conflicts() => HotkeyRoundTrip("ctrl+alt+x", "Ctrl+Alt+X");
+
+    [X11Fact]
+    public void Global_hotkey_with_shift_and_a_function_key() => HotkeyRoundTrip("ctrl+shift+f12", "Ctrl+Shift+F12");
+
+    [X11Fact]
+    public void Global_hotkey_ctrl_alt_f12_diagnostic()
+    {
+        var keymap = _input.KeymapForTests();
+        X11Keysyms.TryGetKeysym("f12", out var f12, out _);
+        var key = keymap.FindKeysym(f12);
+        _out.WriteLine($"F12 keycode {key?.Keycode}: " + string.Join(" ", keymap.GetAll(key?.Keycode ?? 0).Select(s => "0x" + s.ToString("x"))));
+        HotkeyRoundTrip("ctrl+alt+f12", "Ctrl+Alt+F12");
+    }
+
+    private void HotkeyRoundTrip(string text, string display)
     {
         using var pressed = new ManualResetEventSlim();
-        var combo = KeyCombo.Parse("ctrl+alt+f12");
+        var combo = KeyCombo.Parse(text);
         using (var hotkey = X11GlobalHotkey.TryRegister(combo, () => pressed.Set(), out var error))
         {
             Assert.True(hotkey != null, error);
-            Assert.Equal("Ctrl+Alt+F12", hotkey!.Display);
+            Assert.Equal(display, hotkey!.Display);
 
             _input.PressCombo(combo);
-            Assert.True(pressed.Wait(3000), "the hotkey did not fire");
+            Assert.True(pressed.Wait(3000), $"the hotkey {display} did not fire");
 
             var second = X11GlobalHotkey.TryRegister(combo, () => { }, out var conflict);
             Assert.Null(second);
-            Assert.Equal("Ctrl+Alt+F12 is already used by another program", conflict);
+            Assert.Equal($"{display} is already used by another program", conflict);
         }
 
         // Released on dispose: it can be registered again.
