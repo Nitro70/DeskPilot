@@ -521,6 +521,9 @@ public class AtSpiLogicTests
         // Server-side decorations in the bounds: 2 px borders, 24 px title bar.
         var framed = new ScreenRect(300, 200, 404, 326);
         Assert.Equal(new AtSpiInspector.Offset(302, 224, true), AtSpiInspector.ComputeOffset(frame, frame, framed, gtk4Probe));
+        // Client-side shadows: the frame is 20 px larger on every side than the visible window.
+        var shadowed = new ScreenRect(0, 0, 440, 340);
+        Assert.Equal(new AtSpiInspector.Offset(280, 180, true), AtSpiInspector.ComputeOffset(shadowed, shadowed, bounds, gtk4Probe));
         // Real screen coordinates (GTK 3 / Qt on X11): nothing to do, whether or not the window position is known.
         Assert.Equal(new AtSpiInspector.Offset(0, 0, false), AtSpiInspector.ComputeOffset(new ScreenRect(300, 200, 400, 300), frame, bounds, null));
         Assert.Equal(new AtSpiInspector.Offset(0, 0, false), AtSpiInspector.ComputeOffset(new ScreenRect(300, 200, 400, 300), frame, default, null));
@@ -534,6 +537,22 @@ public class AtSpiLogicTests
         Assert.Equal(new AtSpiInspector.Offset(0, 0, true), AtSpiInspector.ComputeOffset(frame, frame, new ScreenRect(0, 0, 400, 300), gtk4Probe));
         Assert.Equal(1u, new AtSpiInspector.Offset(1, 1, true).CoordType);
         Assert.Equal(0u, new AtSpiInspector.Offset(0, 0, false).CoordType);
+    }
+
+    [Fact]
+    public void Elements_are_cut_to_their_frame()
+    {
+        var frame = new ScreenRect(100, 100, 300, 200);
+        var placed = new AtSpiInspector.Offset(0, 0, false);
+        static UiElementInfo E(ScreenRect r) => new("x", "Button", r, null, true, true, null);
+        Assert.Equal(new ScreenRect(350, 250, 50, 50), AtSpiInspector.ClipToFrame(E(new ScreenRect(350, 250, 80, 80)), placed, frame)!.Bounds);
+        Assert.Null(AtSpiInspector.ClipToFrame(E(new ScreenRect(500, 500, 10, 10)), placed, frame));
+        Assert.Null(AtSpiInspector.ClipToFrame(E(default), placed, frame));
+        var inside = E(new ScreenRect(110, 110, 10, 10));
+        Assert.Same(inside, AtSpiInspector.ClipToFrame(inside, placed, frame));
+        // Window position unknown: kept, with empty bounds, so the name still shows.
+        var unplaced = E(default);
+        Assert.Same(unplaced, AtSpiInspector.ClipToFrame(unplaced, new AtSpiInspector.Offset(0, 0, true, false), frame));
     }
 
     [Fact]
@@ -1120,7 +1139,13 @@ public class AtSpiInspectorTests
         """;
 
     [X11Fact]
-    public async Task Reads_a_gtk3_window_without_reading_the_password()
+    public Task Reads_a_gtk3_window_without_reading_the_password() => Gtk3WindowAsync(t => WindowGeometryAsync(t, TimeSpan.FromSeconds(20)));
+
+    /// <summary>GTK 3 as a native Wayland client: it reports window-relative "screen" coordinates.</summary>
+    [WaylandFact]
+    public Task Reads_a_gtk3_window_on_wayland() => Gtk3WindowAsync(t => SwayGeometryAsync(t, TimeSpan.FromSeconds(20)));
+
+    private async Task Gtk3WindowAsync(Func<string, Task<ScreenRect?>> geometryOf)
     {
         var script = Path.Combine(Path.GetTempPath(), "dp-gtk3-" + Guid.NewGuid().ToString("N") + ".py");
         File.WriteAllText(script, Gtk3Script);
@@ -1128,8 +1153,9 @@ public class AtSpiInspectorTests
         var app = StartApp("python3", script, title);
         try
         {
-            var geometry = await WindowGeometryAsync(title, TimeSpan.FromSeconds(20));
+            var geometry = await geometryOf(title);
             Assert.True(geometry != null, "the GTK 3 test window did not appear");
+            _output.WriteLine($"window geometry {geometry}");
             var window = new WindowInfo(78, title, "python3", "python3", app.Id, geometry!.Value, true, false, true, false, false);
             var inspector = new AtSpiInspector(new FakeWindows { Window = window });
 

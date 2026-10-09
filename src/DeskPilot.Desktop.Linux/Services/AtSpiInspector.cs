@@ -290,8 +290,9 @@ public sealed class AtSpiInspector : IUiInspector
     /// coordinates for both. For those the window coordinates are used and shifted by the window's position from the
     /// window manager. A toolkit with real screen coordinates places the frame somewhere other than (0, 0), or, for a
     /// window really in the top-left corner, reports a child at different, non-zero screen and window positions (probe).
-    /// The window bounds may include server-side decorations or shadows, so the frame (its size from frameWindow) is
-    /// placed inside them: side margins split evenly, the top taking the rest.
+    /// The window bounds may include server-side decorations, so the frame (its size from frameWindow) is placed inside
+    /// them: side margins split evenly, the top taking the rest. A frame larger than the bounds (client-side shadows
+    /// around the visible window) gives negative margins the same way.
     /// </summary>
     internal static Offset ComputeOffset(ScreenRect frameScreen, ScreenRect frameWindow, ScreenRect windowBounds, (ScreenRect Screen, ScreenRect Window)? probe)
     {
@@ -303,8 +304,8 @@ public sealed class AtSpiInspector : IUiInspector
 
         var frame = frameWindow.Width > 0 && frameWindow.Height > 0 ? frameWindow : frameScreen;
         if (frame.Width <= 0 || frame.Height <= 0) return new Offset(windowBounds.X, windowBounds.Y, true);
-        int side = Math.Max(0, (windowBounds.Width - frame.Width) / 2);
-        int top = Math.Max(0, windowBounds.Height - frame.Height - side);
+        int side = (windowBounds.Width - frame.Width) / 2;
+        int top = windowBounds.Height - frame.Height - side;
         return new Offset(windowBounds.X + side, windowBounds.Y + top, true);
     }
 
@@ -515,13 +516,25 @@ public sealed class AtSpiInspector : IUiInspector
                 ? DescribeAsync(_conn, node, controlType, _offset, insidePassword, _ct)
                 : Task.FromResult<UiElementInfo?>(null);
             var children = await childrenTask.ConfigureAwait(false);
-            var element = await elementTask.ConfigureAwait(false);
-            // Zero-size or scrolled-out controls are not shown. Without a known window position (Placeable false) every
-            // control keeps empty bounds: its name and type are still worth listing.
-            if (element != null && _offset.Placeable && (element.Bounds.IsEmpty || (!_clip.IsEmpty && element.Bounds.Intersect(_clip).IsEmpty)))
-                element = null;
+            var element = ClipToFrame(await elementTask.ConfigureAwait(false), _offset, _clip);
             return new Detail(element, children);
         }
+    }
+
+    /// <summary>
+    /// Zero-size and scrolled-out controls are dropped, and the rest are cut to the frame. GTK 4.14 reports a control's
+    /// content-box origin with its border-box size, so its rectangle reaches past the control by its own padding (a few
+    /// pixels to ~15); the center stays inside the control and GTK's own hit test uses the same positions. Without a
+    /// known window position (Placeable false) every control keeps empty bounds: its name and type are still worth listing.
+    /// </summary>
+    internal static UiElementInfo? ClipToFrame(UiElementInfo? element, Offset offset, ScreenRect frame)
+    {
+        if (element == null || !offset.Placeable) return element;
+        if (element.Bounds.IsEmpty) return null;
+        if (frame.IsEmpty) return element;
+        var cut = element.Bounds.Intersect(frame);
+        if (cut.IsEmpty) return null;
+        return cut == element.Bounds ? element : element with { Bounds = cut };
     }
 
     private static bool SameBounds(ScreenRect a, ScreenRect b) =>
@@ -627,7 +640,7 @@ public sealed class AtSpiInspector : IUiInspector
         if (found == null) return null;
         var (frame, siblings) = found.Value;
 
-        var (_, offset) = await ResolveOffsetAsync(conn, frame.Ref, target?.Bounds ?? default, ct).ConfigureAwait(false);
+        var (frameBounds, offset) = await ResolveOffsetAsync(conn, frame.Ref, target?.Bounds ?? default, ct).ConfigureAwait(false);
         // Window-relative positions without the window's position: the point cannot be translated.
         if (!offset.Placeable) return null;
 
@@ -673,7 +686,9 @@ public sealed class AtSpiInspector : IUiInspector
         var chosen = pick >= 0 ? chain[pick] : chain[0];
         bool insidePassword = chain.Skip(Math.Max(0, pick) + 1).Any(n => n.Role == Role.PasswordText);
         var controlType = ControlTypeFor(chosen.Role, chosen.States) ?? GenericControlType(chosen.Role);
-        return await DescribeAsync(conn, chosen, controlType, offset, insidePassword, ct).ConfigureAwait(false);
+        var described = await DescribeAsync(conn, chosen, controlType, offset, insidePassword, ct).ConfigureAwait(false);
+        // A popup can lie outside the frame; only cut elements of the frame itself.
+        return root == frame.Ref ? ClipToFrame(described, offset, frameBounds) ?? described : described;
     }
 
     // ------------------------------------------------------------------ diagnostics
