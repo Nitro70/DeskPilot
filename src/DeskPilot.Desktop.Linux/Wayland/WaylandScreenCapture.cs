@@ -61,7 +61,7 @@ public sealed class WaylandScreenCapture : IScreenCapture
         {
             if (_ctx.CaptureLayout != null) return _ctx.CaptureLayout;
             // Nothing describes the outputs: treat the whole desktop as one monitor the size of a full screenshot.
-            using var full = CaptureFull(null);
+            using var full = CaptureFull();
             _ctx.CaptureLayout = WaylandLayout.FromImageSize(full.Width, full.Height, "screenshot");
             return _ctx.CaptureLayout;
         }
@@ -120,7 +120,7 @@ public sealed class WaylandScreenCapture : IScreenCapture
         throw new InvalidOperationException(CaptureHelp(_ctx) + (errors.Count > 0 ? " Details: " + string.Join("; ", errors) : ""));
     }
 
-    private SKBitmap CaptureFull(WaylandLayout? layout)
+    private SKBitmap CaptureFull()
     {
         var errors = new List<string>();
         foreach (var route in OrderedRoutes())

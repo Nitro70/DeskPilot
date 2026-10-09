@@ -146,6 +146,14 @@ public class FactoryTests
         Assert.All(notes, n => Assert.Contains("at-spi2-core", n));
     }
 
+    [X11Fact]
+    public void Real_x11_session_reports_what_it_lacks()
+    {
+        // The CI image has libXtst, libXrandr and xclip; only the accessibility bus may be reported.
+        var notes = LinuxDesktopFactory.DescribeMissingTools(LinuxSession.Detect());
+        Assert.All(notes, n => Assert.Contains("at-spi2-core", n));
+    }
+
     [WaylandFact]
     public void Default_services_in_the_real_wayland_session_share_one_layout()
     {

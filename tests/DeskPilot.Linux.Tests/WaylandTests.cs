@@ -1661,6 +1661,35 @@ public class WaylandSessionTests
     }
 
     [WaylandFact]
+    public void Drag_with_a_held_modifier_moves_a_floating_window()
+    {
+        var ctx = Sway();
+        var wm = new WaylandWindowManager(ctx);
+        var input = new WaylandInputSimulator(ctx);
+        using var app = ZenityApp.Start("--question", "--text=Drag me");
+        var w = app.WaitForWindow(wm);
+        Assert.Null(SwayCommand(ctx, $"[con_id={(long)w.Handle}] floating enable, move position 300 200"));
+        Thread.Sleep(400);
+        w = wm.ListWindows().First(x => x.Handle == w.Handle);
+
+        // sway's floating_modifier (Super, see ci/sway-headless.conf) turns a drag anywhere on the window into a move.
+        var start = w.Bounds.Center;
+        input.MoveMouse(start.X, start.Y);
+        input.KeyDown("win");
+        input.MouseDown(MouseButton.Left);
+        input.MoveMouseSmooth(start.X + 200, start.Y + 120, 300);
+        input.MouseUp(MouseButton.Left);
+        input.KeyUp("win");
+        Thread.Sleep(300);
+
+        var moved = wm.ListWindows().First(x => x.Handle == w.Handle);
+        Assert.True(Math.Abs(moved.Bounds.X - (w.Bounds.X + 200)) <= 12 && Math.Abs(moved.Bounds.Y - (w.Bounds.Y + 120)) <= 12,
+            $"window went from {w.Bounds} to {moved.Bounds}, expected a move of (200, 120)");
+        Assert.Empty(input.PressedKeys);
+        Assert.Empty(input.PressedButtons);
+    }
+
+    [WaylandFact]
     public void Pointer_lands_where_it_was_sent()
     {
         var ctx = Sway();
