@@ -1,0 +1,12 @@
+# Linux services module (AT-SPI inspector, launcher, clipboard, shell runner)
+# GTK 3 AT-SPI bridge and a GTK 3 test window
+libatk-adaptor
+at-spi2-core
+python3-gi
+gir1.2-gtk-3.0
+# launcher helpers: gtk-launch, gio, xdg-open
+libgtk-3-bin
+libglib2.0-bin
+xdg-utils
+# ps for the shell runner session test
+procps
