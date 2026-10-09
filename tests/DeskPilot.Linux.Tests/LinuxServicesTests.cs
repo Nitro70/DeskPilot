@@ -510,21 +510,30 @@ public class AtSpiLogicTests
     public void Offset_applies_only_to_window_relative_toolkits()
     {
         var bounds = new ScreenRect(300, 200, 400, 300);
-        // GTK 4 (or GTK 3 / Qt under Wayland): frame at 0,0, screen == window for children: shift by the window position.
-        Assert.Equal(new AtSpiInspector.Offset(300, 200, true), AtSpiInspector.ComputeOffset(new ScreenRect(0, 0, 400, 300), bounds, (0, 0)));
-        Assert.Equal(new AtSpiInspector.Offset(300, 200, true), AtSpiInspector.ComputeOffset(new ScreenRect(0, 0, 400, 300), bounds, null));
+        var frame = new ScreenRect(0, 0, 400, 300);
+        // GTK 4: every screen position is (0, 0) and only window coordinates are real.
+        var gtk4Probe = (new ScreenRect(0, 0, 200, 30), new ScreenRect(10, 40, 200, 30));
+        Assert.Equal(new AtSpiInspector.Offset(300, 200, true), AtSpiInspector.ComputeOffset(frame, frame, bounds, gtk4Probe));
+        // GTK 3 / Qt under Wayland: screen and window coordinates are the same window-relative ones.
+        var samePlace = (new ScreenRect(10, 40, 200, 30), new ScreenRect(10, 40, 200, 30));
+        Assert.Equal(new AtSpiInspector.Offset(300, 200, true), AtSpiInspector.ComputeOffset(frame, frame, bounds, samePlace));
+        Assert.Equal(new AtSpiInspector.Offset(300, 200, true), AtSpiInspector.ComputeOffset(frame, default, bounds, null));
         // Server-side decorations in the bounds: 2 px borders, 24 px title bar.
         var framed = new ScreenRect(300, 200, 404, 326);
-        Assert.Equal(new AtSpiInspector.Offset(302, 224, true), AtSpiInspector.ComputeOffset(new ScreenRect(0, 0, 400, 300), framed, (0, 0)));
-        // Real screen coordinates (GTK 3 / Qt on X11): nothing to do.
-        Assert.Equal(new AtSpiInspector.Offset(0, 0, false), AtSpiInspector.ComputeOffset(new ScreenRect(300, 200, 400, 300), bounds, null));
-        // A window really in the top-left corner: the child's screen and window coordinates differ, so they are real.
-        Assert.Equal(new AtSpiInspector.Offset(0, 0, false), AtSpiInspector.ComputeOffset(new ScreenRect(0, 0, 404, 326), new ScreenRect(2, 24, 400, 300), (2, 24)));
-        // Unknown window bounds or a window at the origin: leave the extents alone.
-        Assert.Equal(new AtSpiInspector.Offset(0, 0, false), AtSpiInspector.ComputeOffset(new ScreenRect(0, 0, 400, 300), default, (0, 0)));
-        Assert.Equal(new AtSpiInspector.Offset(0, 0, false), AtSpiInspector.ComputeOffset(new ScreenRect(0, 0, 400, 300), new ScreenRect(0, 0, 400, 300), (0, 0)));
-        Assert.Equal(1u, new AtSpiInspector.Offset(1, 1, true).PointCoordType);
-        Assert.Equal(0u, new AtSpiInspector.Offset(0, 0, false).PointCoordType);
+        Assert.Equal(new AtSpiInspector.Offset(302, 224, true), AtSpiInspector.ComputeOffset(frame, frame, framed, gtk4Probe));
+        // Real screen coordinates (GTK 3 / Qt on X11): nothing to do, whether or not the window position is known.
+        Assert.Equal(new AtSpiInspector.Offset(0, 0, false), AtSpiInspector.ComputeOffset(new ScreenRect(300, 200, 400, 300), frame, bounds, null));
+        Assert.Equal(new AtSpiInspector.Offset(0, 0, false), AtSpiInspector.ComputeOffset(new ScreenRect(300, 200, 400, 300), frame, default, null));
+        // A window really in the top-left corner: a child's screen and window positions differ, so they are real.
+        var corner = (new ScreenRect(2, 24, 400, 300), new ScreenRect(0, 0, 400, 300));
+        Assert.Equal(new AtSpiInspector.Offset(0, 0, false),
+            AtSpiInspector.ComputeOffset(new ScreenRect(0, 0, 404, 326), new ScreenRect(0, 0, 404, 326), new ScreenRect(2, 24, 400, 300), corner));
+        // Window-relative positions and an unknown window position: nothing can be placed on the screen.
+        Assert.Equal(new AtSpiInspector.Offset(0, 0, true, false), AtSpiInspector.ComputeOffset(frame, frame, default, gtk4Probe));
+        // A window-relative toolkit with its window at the origin: nothing to add.
+        Assert.Equal(new AtSpiInspector.Offset(0, 0, true), AtSpiInspector.ComputeOffset(frame, frame, new ScreenRect(0, 0, 400, 300), gtk4Probe));
+        Assert.Equal(1u, new AtSpiInspector.Offset(1, 1, true).CoordType);
+        Assert.Equal(0u, new AtSpiInspector.Offset(0, 0, false).CoordType);
     }
 
     [Fact]
@@ -968,11 +977,12 @@ public class AtSpiInspectorTests
     /// <summary>Role numbers are checked against the role names the toolkit reports, so the role table cannot drift.</summary>
     private static void AssertRoleNamesAgree(IEnumerable<string> dump)
     {
+        // ATK-style names (GTK 3, Qt) and GTK 4's own names for the same role numbers.
         var expected = new Dictionary<string, string[]>
         {
-            ["Button"] = new[] { "push button", "toggle button", "push button menu" },
-            ["Edit"] = new[] { "text", "entry", "password text", "editbar" },
-            ["CheckBox"] = new[] { "check box", "switch" },
+            ["Button"] = new[] { "push button", "toggle button", "push button menu", "button", "toggle" },
+            ["Edit"] = new[] { "text", "entry", "password text", "editbar", "text box", "search box" },
+            ["CheckBox"] = new[] { "check box", "checkbox", "switch" },
         };
         foreach (var line in dump)
         {
@@ -987,14 +997,65 @@ public class AtSpiInspectorTests
     }
 
     [X11Fact]
-    public async Task Finds_entry_and_buttons_in_a_gtk4_dialog()
+    public Task Finds_entry_and_buttons_in_a_gtk4_dialog() => Gtk4DialogAsync(t => WindowGeometryAsync(t, TimeSpan.FromSeconds(20)));
+
+    /// <summary>The same dialog as a native Wayland client of sway; its position comes from sway's tree.</summary>
+    [WaylandFact]
+    public Task Finds_entry_and_buttons_in_a_gtk4_dialog_on_wayland() => Gtk4DialogAsync(t => SwayGeometryAsync(t, TimeSpan.FromSeconds(20)));
+
+    /// <summary>Content rectangle of a sway window (rect plus window_rect), polled until it is mapped.</summary>
+    private static async Task<ScreenRect?> SwayGeometryAsync(string title, TimeSpan timeout)
+    {
+        var sw = Stopwatch.StartNew();
+        while (sw.Elapsed < timeout)
+        {
+            var psi = new ProcessStartInfo("swaymsg") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+            psi.ArgumentList.Add("-t");
+            psi.ArgumentList.Add("get_tree");
+            using (var p = Process.Start(psi)!)
+            {
+                var json = await p.StandardOutput.ReadToEndAsync();
+                await p.WaitForExitAsync();
+                if (p.ExitCode == 0 && FindSwayNode(System.Text.Json.JsonDocument.Parse(json).RootElement, title) is { } node)
+                {
+                    var rect = node.GetProperty("rect");
+                    var inner = node.GetProperty("window_rect");
+                    var r = new ScreenRect(
+                        rect.GetProperty("x").GetInt32() + inner.GetProperty("x").GetInt32(),
+                        rect.GetProperty("y").GetInt32() + inner.GetProperty("y").GetInt32(),
+                        inner.GetProperty("width").GetInt32(),
+                        inner.GetProperty("height").GetInt32());
+                    if (!r.IsEmpty) return r;
+                }
+            }
+            await Task.Delay(200);
+        }
+        return null;
+    }
+
+    private static System.Text.Json.JsonElement? FindSwayNode(System.Text.Json.JsonElement node, string title)
+    {
+        if (node.TryGetProperty("name", out var name) && name.ValueKind == System.Text.Json.JsonValueKind.String && name.GetString() == title
+            && node.TryGetProperty("window_rect", out _))
+            return node;
+        foreach (var key in new[] { "nodes", "floating_nodes" })
+        {
+            if (!node.TryGetProperty(key, out var children) || children.ValueKind != System.Text.Json.JsonValueKind.Array) continue;
+            foreach (var child in children.EnumerateArray())
+                if (FindSwayNode(child, title) is { } hit) return hit;
+        }
+        return null;
+    }
+
+    private async Task Gtk4DialogAsync(Func<string, Task<ScreenRect?>> geometryOf)
     {
         var title = "DeskPilot zenity " + Guid.NewGuid().ToString("N")[..8];
         var app = StartApp("zenity", "--entry", "--title", title, "--text", "DeskPilot test prompt", "--entry-text", "hello dp");
         try
         {
-            var geometry = await WindowGeometryAsync(title, TimeSpan.FromSeconds(20));
+            var geometry = await geometryOf(title);
             Assert.True(geometry != null, "zenity did not show its window");
+            _output.WriteLine($"window geometry {geometry}");
             var window = new WindowInfo(77, title, "zenity", "zenity", app.Id, geometry!.Value, true, false, true, false, false);
             var inspector = new AtSpiInspector(new FakeWindows { Window = window });
 
@@ -1006,11 +1067,15 @@ public class AtSpiInspectorTests
 
             var ok = elements.FirstOrDefault(e => e.ControlType == "Button" && e.Name == "OK");
             Assert.NotNull(ok);
-            Assert.Contains(elements, e => e.ControlType == "Button" && e.Name == "Cancel");
+            var cancel = elements.FirstOrDefault(e => e.ControlType == "Button" && e.Name == "Cancel");
+            Assert.NotNull(cancel);
             var edit = elements.First(e => e.ControlType == "Edit");
             Assert.Equal("hello dp", edit.Value);
             foreach (var e in elements) AssertInside(geometry.Value, e);
             AssertRoleNamesAgree(dump);
+            // Real positions, not every control piled up at the window's corner: the buttons sit side by side below the entry.
+            Assert.NotEqual(ok!.Bounds.X, cancel!.Bounds.X);
+            Assert.True(edit.Bounds.Bottom <= ok.Bounds.Y + 2, $"entry {edit.Bounds} is not above the buttons {ok.Bounds}");
 
             // Handle 0 means the foreground window.
             var foreground = await inspector.GetElementsAsync(0, 200, Ct);

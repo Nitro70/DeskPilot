@@ -274,39 +274,49 @@ public sealed class AtSpiInspector : IUiInspector
         return pool.FirstOrDefault(t => Has(t.States, State.Active)) ?? pool[0];
     }
 
-    /// <summary>How reported extents map to screen pixels.</summary>
-    internal readonly record struct Offset(int Dx, int Dy, bool WindowRelative)
+    /// <summary>
+    /// How to ask for positions and turn them into screen pixels: the AT-SPI coordinate type to use for extents and
+    /// hit tests, and what to add to the results. Placeable is false when positions are window-relative and the window's
+    /// own position is unknown, so no screen position can be given.
+    /// </summary>
+    internal readonly record struct Offset(int Dx, int Dy, bool WindowRelative, bool Placeable = true)
     {
-        public uint PointCoordType => WindowRelative ? CoordWindow : CoordScreen;
+        public uint CoordType => WindowRelative ? CoordWindow : CoordScreen;
     }
 
     /// <summary>
-    /// Toolkits that do not know where their window is (GTK 4 always; GTK 3 and Qt under Wayland) report "screen"
-    /// extents relative to the window: the frame itself sits at (0, 0) and screen and window coordinates are the same.
-    /// When the window manager knows the window's bounds somewhere else, those extents are shifted by the window's
-    /// position. A frame at (0, 0) can also be a real window in the top-left corner, so a child's screen minus window
-    /// coordinates (probe) decides: a toolkit that knows the screen position reports a difference there.
-    /// The bounds may include server-side decorations, so the frame is placed inside them: side borders split evenly,
-    /// the title bar taking the rest at the top.
+    /// Toolkits that do not know where their window is report no usable screen coordinates: GTK 4 answers every
+    /// "screen" query with (0, 0) and only has window and parent coordinates; GTK 3 and Qt under Wayland report window
+    /// coordinates for both. For those the window coordinates are used and shifted by the window's position from the
+    /// window manager. A toolkit with real screen coordinates places the frame somewhere other than (0, 0), or, for a
+    /// window really in the top-left corner, reports a child at different, non-zero screen and window positions (probe).
+    /// The window bounds may include server-side decorations or shadows, so the frame (its size from frameWindow) is
+    /// placed inside them: side margins split evenly, the top taking the rest.
     /// </summary>
-    internal static Offset ComputeOffset(ScreenRect frameExtents, ScreenRect windowBounds, (int Dx, int Dy)? probe)
+    internal static Offset ComputeOffset(ScreenRect frameScreen, ScreenRect frameWindow, ScreenRect windowBounds, (ScreenRect Screen, ScreenRect Window)? probe)
     {
-        if (windowBounds.IsEmpty) return new Offset(0, 0, false);
-        if (frameExtents.X != 0 || frameExtents.Y != 0) return new Offset(0, 0, false);
-        if (probe is { } d && (d.Dx != 0 || d.Dy != 0)) return new Offset(0, 0, false);
-        if (windowBounds.X == 0 && windowBounds.Y == 0) return new Offset(0, 0, false);
-        if (frameExtents.Width <= 0 || frameExtents.Height <= 0) return new Offset(windowBounds.X, windowBounds.Y, true);
-        int border = Math.Max(0, (windowBounds.Width - frameExtents.Width) / 2);
-        int top = Math.Max(0, windowBounds.Height - frameExtents.Height - border);
-        return new Offset(windowBounds.X + border, windowBounds.Y + top, true);
+        bool realScreen = frameScreen.X != 0 || frameScreen.Y != 0;
+        if (!realScreen && probe is { } p && (p.Screen.X != p.Window.X || p.Screen.Y != p.Window.Y) && (p.Screen.X != 0 || p.Screen.Y != 0))
+            realScreen = true;
+        if (realScreen) return new Offset(0, 0, false);
+        if (windowBounds.IsEmpty) return new Offset(0, 0, true, Placeable: false);
+
+        var frame = frameWindow.Width > 0 && frameWindow.Height > 0 ? frameWindow : frameScreen;
+        if (frame.Width <= 0 || frame.Height <= 0) return new Offset(windowBounds.X, windowBounds.Y, true);
+        int side = Math.Max(0, (windowBounds.Width - frame.Width) / 2);
+        int top = Math.Max(0, windowBounds.Height - frame.Height - side);
+        return new Offset(windowBounds.X + side, windowBounds.Y + top, true);
     }
 
-    /// <summary>The frame's screen extents and how to turn reported extents into screen pixels for this window.</summary>
-    private static async Task<(ScreenRect FrameExtents, Offset Offset)> ResolveOffsetAsync(AtSpiConnection conn, AtspiRef frame, ScreenRect windowBounds, CancellationToken ct)
+    /// <summary>How to turn reported extents into screen pixels for this window, and the frame's screen rectangle.</summary>
+    private static async Task<(ScreenRect FrameBounds, Offset Offset)> ResolveOffsetAsync(AtSpiConnection conn, AtspiRef frame, ScreenRect windowBounds, CancellationToken ct)
     {
-        var frameExtents = await ExtentsAsync(conn, frame, CoordScreen, ct).ConfigureAwait(false);
-        (int, int)? probe = null;
-        if (!windowBounds.IsEmpty && frameExtents.X == 0 && frameExtents.Y == 0)
+        var frameScreenTask = ExtentsAsync(conn, frame, CoordScreen, ct);
+        var frameWindowTask = ExtentsAsync(conn, frame, CoordWindow, ct);
+        var frameScreen = await frameScreenTask.ConfigureAwait(false);
+        var frameWindow = await frameWindowTask.ConfigureAwait(false);
+        (ScreenRect, ScreenRect)? probe = null;
+        if (frameScreen.X == 0 && frameScreen.Y == 0)
         {
             try
             {
@@ -317,13 +327,16 @@ public sealed class AtSpiInspector : IUiInspector
                     if (screen.IsEmpty) continue;
                     var window = await ExtentsAsync(conn, child, CoordWindow, ct).ConfigureAwait(false);
                     if (window.IsEmpty) continue;
-                    probe = (screen.X - window.X, screen.Y - window.Y);
+                    probe = (screen, window);
                     break;
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException) { }
         }
-        return (frameExtents, ComputeOffset(frameExtents, windowBounds, probe));
+        var offset = ComputeOffset(frameScreen, frameWindow, windowBounds, probe);
+        var frameRect = offset.WindowRelative ? frameWindow : frameScreen;
+        var bounds = !offset.Placeable || frameRect.IsEmpty ? default : Shift(frameRect, offset);
+        return (bounds, offset);
     }
 
     private static async Task<ScreenRect> ExtentsAsync(AtSpiConnection conn, AtspiRef node, uint coordType, CancellationToken ct)
@@ -350,8 +363,7 @@ public sealed class AtSpiInspector : IUiInspector
         if (found == null) return;
         var frame = found.Value.Frame;
 
-        var (frameExtents, offset) = await ResolveOffsetAsync(conn, frame.Ref, target?.Bounds ?? default, ct).ConfigureAwait(false);
-        var clip = frameExtents.IsEmpty ? default : Shift(frameExtents, offset);
+        var (clip, offset) = await ResolveOffsetAsync(conn, frame.Ref, target?.Bounds ?? default, ct).ConfigureAwait(false);
 
         var walker = new Walker(conn, collector, offset, clip, ct);
         var children = await walker.ChildrenOfAsync(frame.Ref, frame.States).ConfigureAwait(false);
@@ -504,7 +516,10 @@ public sealed class AtSpiInspector : IUiInspector
                 : Task.FromResult<UiElementInfo?>(null);
             var children = await childrenTask.ConfigureAwait(false);
             var element = await elementTask.ConfigureAwait(false);
-            if (element != null && (element.Bounds.IsEmpty || (!_clip.IsEmpty && element.Bounds.Intersect(_clip).IsEmpty))) element = null;
+            // Zero-size or scrolled-out controls are not shown. Without a known window position (Placeable false) every
+            // control keeps empty bounds: its name and type are still worth listing.
+            if (element != null && _offset.Placeable && (element.Bounds.IsEmpty || (!_clip.IsEmpty && element.Bounds.Intersect(_clip).IsEmpty)))
+                element = null;
             return new Detail(element, children);
         }
     }
@@ -515,10 +530,10 @@ public sealed class AtSpiInspector : IUiInspector
     /// <summary>Extents, accessible id and (for edits and ranges that are not passwords) a short value.</summary>
     private static async Task<UiElementInfo?> DescribeAsync(AtSpiConnection conn, Node node, string controlType, Offset offset, bool insidePassword, CancellationToken ct)
     {
-        var extents = ExtentsAsync(conn, node.Ref, CoordScreen, ct);
+        var extents = offset.Placeable ? ExtentsAsync(conn, node.Ref, offset.CoordType, ct) : Task.FromResult(default(ScreenRect));
         var id = SafeStringAsync(conn.GetPropertyAsync(node.Ref, AtSpiConnection.AccessibleInterface, "AccessibleId", ct));
         var value = MayReadValue(node, insidePassword) ? ReadValueAsync(conn, node, ct) : Task.FromResult<string?>(null);
-        var bounds = Shift(await extents.ConfigureAwait(false), offset);
+        var bounds = offset.Placeable ? Shift(await extents.ConfigureAwait(false), offset) : default;
         var automationId = await id.ConfigureAwait(false);
         var v = await value.ConfigureAwait(false);
         return new UiElementInfo(
@@ -564,13 +579,16 @@ public sealed class AtSpiInspector : IUiInspector
         {
             if (TextValueRoles.Contains(node.Role))
             {
-                int end = -1;
-                if (Has(node.States, State.MultiLine))
+                // An explicit end offset: GTK 4 clamps -1 to 0 instead of reading to the end.
+                int count = -1;
+                try { count = await conn.GetCharacterCountAsync(node.Ref, ct).ConfigureAwait(false); }
+                catch (Exception ex) when (ex is not OperationCanceledException) { }
+                string text = count switch
                 {
-                    int count = await conn.GetCharacterCountAsync(node.Ref, ct).ConfigureAwait(false);
-                    if (count >= 0) end = Math.Min(count, MaxValueChars);
-                }
-                var text = await conn.GetTextAsync(node.Ref, 0, end, ct).ConfigureAwait(false);
+                    0 => "",
+                    > 0 => await conn.GetTextAsync(node.Ref, 0, Math.Min(count, MaxValueChars), ct).ConfigureAwait(false),
+                    _ => await conn.GetTextAsync(node.Ref, 0, -1, ct).ConfigureAwait(false),
+                };
                 if (!string.IsNullOrEmpty(text) && !IsMasked(text)) return Trim(text.Length > MaxValueChars ? text[..MaxValueChars] : text);
                 if (!NumericValueRoles.Contains(node.Role)) return null;
             }
@@ -610,6 +628,8 @@ public sealed class AtSpiInspector : IUiInspector
         var (frame, siblings) = found.Value;
 
         var (_, offset) = await ResolveOffsetAsync(conn, frame.Ref, target?.Bounds ?? default, ct).ConfigureAwait(false);
+        // Window-relative positions without the window's position: the point cannot be translated.
+        if (!offset.Placeable) return null;
 
         // An open menu or popup is its own toplevel of the same app; with real screen coordinates it can be told apart.
         var root = frame.Ref;
@@ -628,7 +648,7 @@ public sealed class AtSpiInspector : IUiInspector
         for (int i = 0; i < 40; i++)
         {
             AtspiRef child;
-            try { child = await conn.GetAccessibleAtPointAsync(current, qx, qy, offset.PointCoordType, ct).ConfigureAwait(false); }
+            try { child = await conn.GetAccessibleAtPointAsync(current, qx, qy, offset.CoordType, ct).ConfigureAwait(false); }
             catch (Exception ex) when (ex is not OperationCanceledException) { break; }
             if (child.IsNull || child == current) break;
             current = child;
@@ -687,7 +707,8 @@ public sealed class AtSpiInspector : IUiInspector
                 string roleName = "";
                 try { roleName = await conn.GetRoleNameAsync(r, ct).ConfigureAwait(false); } catch (Exception ex) when (ex is not OperationCanceledException) { }
                 var ext = depth == 0 ? default : await ExtentsAsync(conn, r, CoordScreen, ct).ConfigureAwait(false);
-                lines.Add($"{new string(' ', depth * 2)}role={node.Role} '{roleName}' states=0x{node.States:x} name='{node.Name}' ext={ext} type={ControlTypeFor(node.Role, node.States) ?? "-"}");
+                var win = depth == 0 ? default : await ExtentsAsync(conn, r, CoordWindow, ct).ConfigureAwait(false);
+                lines.Add($"{new string(' ', depth * 2)}role={node.Role} '{roleName}' states=0x{node.States:x} name='{node.Name}' ext={ext} win={win} type={ControlTypeFor(node.Role, node.States) ?? "-"}");
                 List<AtspiRef> children;
                 try { children = await conn.GetChildrenAsync(r, ct).ConfigureAwait(false); }
                 catch (Exception ex) when (ex is not OperationCanceledException) { continue; }
