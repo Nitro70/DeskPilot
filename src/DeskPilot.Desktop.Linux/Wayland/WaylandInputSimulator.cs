@@ -214,7 +214,7 @@ public sealed class WaylandInputSimulator : IInputSimulator
         _ctx.TryGetLayout() ?? _ctx.CaptureLayout ?? throw new InvalidOperationException(
             $"Could not read the screen layout of {_ctx.DesktopName}. Take a screenshot first, or install wlr-randr (wlroots) or kscreen-doctor (KDE).");
 
-    private static bool IsRouteFailure(Exception ex) => ex is WaylandProtocolException or TimeoutException or IOException or InvalidOperationException;
+    private static bool IsRouteFailure(Exception ex) => ex is WaylandProtocolException or TimeoutException or IOException or InvalidOperationException or Tmds.DBus.Protocol.DBusExceptionBase;
 
     private void UsePointer(Action<IPointerBackend> action)
     {

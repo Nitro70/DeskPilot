@@ -916,6 +916,34 @@ public class WaylandCaptureLogicTests
         Assert.Equal(WaylandScreenCapture.RouteGrim, capture.Route);
     }
 
+    [Theory]
+    [InlineData("spectacle", "-o")]
+    [InlineData("gnome-screenshot", "-f")]
+    public void File_based_routes_crop_and_delete_their_file(string tool, string fileFlag)
+    {
+        var runner = new FakeRunner().Returns("kscreen-doctor", """{"outputs":[{"name":"A","enabled":true,"connected":true,"pos":{"x":0,"y":0},"size":{"width":400,"height":200},"scale":1}]}""");
+        string? written = null;
+        runner.Installed.Add(tool);
+        runner.Handlers[tool] = args =>
+        {
+            written = args[args.ToList().IndexOf(fileFlag) + 1];
+            using var bmp = new SKBitmap(400, 200);
+            bmp.Erase(SKColors.Green);
+            using (var c = new SKCanvas(bmp)) c.DrawRect(300, 100, 100, 100, new SKPaint { Color = SKColors.Yellow });
+            using var data = bmp.Encode(SKEncodedImageFormat.Png, 90);
+            File.WriteAllBytes(written, data.ToArray());
+            return new CommandResult(0, Array.Empty<byte>(), "", false);
+        };
+        var capture = new WaylandScreenCapture(WaylandSamples.Context(runner, "KDE"), tool);
+        var frame = capture.Capture(new CaptureRequest(new ScreenRect(250, 50, 100, 100), 100, 100, ImageFormatKind.Png, 90, false, 0));
+        using var bmp2 = SKBitmap.Decode(frame.Data);
+        Assert.Equal(SKColors.Green, bmp2.GetPixel(10, 10));
+        Assert.Equal(SKColors.Yellow, bmp2.GetPixel(90, 90));
+        Assert.NotNull(written);
+        Assert.False(File.Exists(written), "the screenshot file must be deleted");
+        Assert.Equal(tool, capture.Route);
+    }
+
     [Fact]
     public void Capture_failure_explains_the_routes()
     {

@@ -112,7 +112,7 @@ public sealed class WaylandScreenCapture : IScreenCapture
                 _route = route;
                 return result;
             }
-            catch (Exception ex) when (ex is InvalidOperationException or TimeoutException or IOException or UnauthorizedAccessException)
+            catch (Exception ex) when (ex is InvalidOperationException or TimeoutException or IOException or UnauthorizedAccessException or Tmds.DBus.Protocol.DBusExceptionBase)
             {
                 errors.Add($"{route}: {ex.Message}");
             }
@@ -131,7 +131,7 @@ public sealed class WaylandScreenCapture : IScreenCapture
                 _route = route;
                 return bmp;
             }
-            catch (Exception ex) when (ex is InvalidOperationException or TimeoutException or IOException or UnauthorizedAccessException)
+            catch (Exception ex) when (ex is InvalidOperationException or TimeoutException or IOException or UnauthorizedAccessException or Tmds.DBus.Protocol.DBusExceptionBase)
             {
                 errors.Add($"{route}: {ex.Message}");
             }
