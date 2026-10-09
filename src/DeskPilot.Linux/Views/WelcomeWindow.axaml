@@ -1,7 +1,165 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:DeskPilot.Linux.ViewModels"
+        xmlns:sys="using:System"
         x:Class="DeskPilot.Linux.Views.WelcomeWindow"
-        Title="Welcome to DeskPilot" Width="780" Height="720" WindowStartupLocation="CenterOwner">
-    <!-- STUB: owned by the Linux settings UI agent. -->
-    <TextBlock Text="Welcome (stub)" HorizontalAlignment="Center" VerticalAlignment="Center" />
+        x:DataType="vm:SettingsWelcomeViewModel"
+        Title="Welcome to DeskPilot" Width="780" Height="720" MinWidth="520" MinHeight="460"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource BgBrush}" Foreground="{DynamicResource TextBrush}">
+    <Window.Styles>
+        <Style Selector="TextBlock.body">
+            <Setter Property="Margin" Value="0,6,0,0" />
+            <Setter Property="Foreground" Value="{DynamicResource SubtleTextBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="LineHeight" Value="20" />
+        </Style>
+        <Style Selector="TextBlock.card-title">
+            <Setter Property="FontSize" Value="16" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="TextBlock.error">
+            <Setter Property="Foreground" Value="{DynamicResource DangerBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="TextBlock.warning">
+            <Setter Property="Foreground" Value="{DynamicResource WarningBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="TextBlock.auto">
+            <Setter Property="IsVisible" Value="{ReflectionBinding $self.Text, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+        </Style>
+        <Style Selector="Border.welcome-card">
+            <Setter Property="Padding" Value="18" />
+            <Setter Property="Margin" Value="0,14,0,0" />
+        </Style>
+        <!-- Missing helper tools: the one card that must not be overlooked. -->
+        <Style Selector="Border.welcome-card.attention">
+            <Setter Property="BorderBrush" Value="{DynamicResource WarningBrush}" />
+            <Setter Property="BorderThickness" Value="2" />
+        </Style>
+        <Style Selector="Ellipse.state">
+            <Setter Property="Width" Value="10" />
+            <Setter Property="Height" Value="10" />
+            <Setter Property="Margin" Value="0,5,10,0" />
+            <Setter Property="VerticalAlignment" Value="Top" />
+            <Setter Property="Fill" Value="{DynamicResource WarningBrush}" />
+        </Style>
+        <Style Selector="Ellipse.state.ready">
+            <Setter Property="Fill" Value="{DynamicResource SuccessBrush}" />
+        </Style>
+    </Window.Styles>
+
+    <Grid RowDefinitions="*,Auto">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="32,28,32,20">
+                <TextBlock Text="Welcome to DeskPilot" FontSize="26" FontWeight="SemiBold" />
+                <TextBlock Classes="body" FontSize="14" Margin="0,10,0,0"
+                           Text="DeskPilot lets an AI model use your computer for you. Tell it what you want done: it looks at the screen, then clicks, types and opens apps the way you would, while you watch. You can stop it at any moment." />
+                <TextBlock Text="{Binding RootWarning}" Classes="warning auto" Margin="0,12,0,0" FontWeight="SemiBold" />
+
+                <!-- Session and setup -->
+                <Border Classes="card welcome-card" Classes.attention="{Binding HasSetupNotes}" Margin="0,22,0,0">
+                    <StackPanel>
+                        <TextBlock Text="{Binding SessionTitle}" Classes="card-title" />
+                        <TextBlock Text="{Binding SessionDetail}" Classes="body" />
+                        <StackPanel IsVisible="{Binding HasSetupNotes}" Margin="0,12,0,0">
+                            <TextBlock Text="Install these first" FontWeight="SemiBold" Foreground="{DynamicResource WarningBrush}" />
+                            <TextBlock Classes="body" Text="DeskPilot needs a few helper programs for this session. Run the commands below in a terminal, then restart DeskPilot." />
+                            <ItemsControl ItemsSource="{Binding SetupNotes}" Margin="0,6,0,0">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="sys:String">
+                                        <SelectableTextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,6,0,0" FontFamily="monospace" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                        <TextBlock Classes="body" IsVisible="{Binding SetupComplete}" Margin="0,10,0,0"
+                                   Text="Everything DeskPilot needs for this session is installed." />
+                    </StackPanel>
+                </Border>
+
+                <!-- Default model -->
+                <Border Classes="card welcome-card">
+                    <StackPanel>
+                        <TextBlock Text="Your model" Classes="card-title" />
+                        <TextBlock Classes="body"
+                                   Text="By default DeskPilot runs on your own Claude subscription through Claude Code: no API key and no extra account." />
+                        <DockPanel Margin="0,14,0,0">
+                            <Ellipse Classes="state" Classes.ready="{Binding ClaudeReady}" />
+                            <StackPanel>
+                                <TextBlock Text="{Binding ClaudeTitle}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding ClaudeDetail}" Classes="body" />
+                                <TextBox Text="{Binding ClaudeCommand, Mode=OneWay}" IsReadOnly="True" Classes="mono"
+                                         HorizontalAlignment="Left" MinWidth="240" Margin="0,8,0,0" AutomationProperties.Name="Command to run"
+                                         IsVisible="{Binding HasClaudeCommand}" />
+                            </StackPanel>
+                        </DockPanel>
+                        <TextBlock Classes="body" Margin="0,14,0,0"
+                                   Text="Other providers (the Anthropic API, OpenAI, Google Gemini, OpenRouter, Ollama, LM Studio and more) can be added any time in Settings, under Models &amp; providers." />
+                    </StackPanel>
+                </Border>
+
+                <!-- Other detected providers -->
+                <Border Classes="card welcome-card" IsVisible="{Binding HasOtherProviders}">
+                    <StackPanel>
+                        <TextBlock Text="Also found on this computer" Classes="card-title" />
+                        <ItemsControl ItemsSource="{Binding OtherProviders}" Margin="0,4,0,0">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="sys:String">
+                                    <DockPanel Margin="0,6,0,0">
+                                        <Ellipse DockPanel.Dock="Left" Width="5" Height="5" Fill="{DynamicResource SubtleTextBrush}" Margin="2,7,10,0" VerticalAlignment="Top" />
+                                        <TextBlock Text="{Binding}" TextWrapping="Wrap" Foreground="{DynamicResource SubtleTextBrush}" />
+                                    </DockPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Classes="body" Margin="0,10,0,0" Text="Settings, Models &amp; providers, has an Add button for each of these." />
+                    </StackPanel>
+                </Border>
+
+                <!-- Vault -->
+                <Border Classes="card welcome-card">
+                    <StackPanel>
+                        <TextBlock Text="Notes vault (optional)" Classes="card-title" />
+                        <TextBlock Classes="body"
+                                   Text="If you keep notes in a folder (an Obsidian vault works well), DeskPilot can search them when a request needs something written there. It never reads the whole vault, only the lines that match." />
+                        <ListBox ItemsSource="{Binding VaultOptions}" SelectedItem="{Binding SelectedVault, Mode=TwoWay}" Margin="0,12,0,0"
+                                 MaxHeight="200" ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="Vault choice">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:SettingsWelcomeVaultOption">
+                                    <StackPanel Margin="0,2">
+                                        <TextBlock Text="{Binding Label}" FontWeight="SemiBold" />
+                                        <TextBlock Text="{Binding Detail}" FontSize="12" Foreground="{DynamicResource MutedTextBrush}" TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                        <Button Content="Choose another folder..." Click="BrowseVault_Click" Classes="ghost" HorizontalAlignment="Left" Margin="0,10,0,0" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Control -->
+                <Border Classes="card welcome-card">
+                    <StackPanel>
+                        <TextBlock Text="You stay in control" Classes="card-title" />
+                        <TextBlock Classes="body" Text="{Binding StopText}" />
+                        <TextBlock Classes="body" Text="{Binding AdminText}" />
+                        <TextBlock Classes="body" Text="Every action the agent takes is listed in the main window as it happens." />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <Border Grid.Row="1" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Padding="32,14">
+            <DockPanel>
+                <Button DockPanel.Dock="Right" Content="Get started" Click="GetStarted_Click" Classes="accent" MinWidth="130" IsDefault="True" />
+                <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
+                    <TextBlock x:Name="ErrorText" Classes="error auto" />
+                    <TextBlock Text="Everything here can be changed later in Settings." Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+    </Grid>
 </Window>
