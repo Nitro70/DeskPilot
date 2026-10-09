@@ -1775,6 +1775,8 @@ public class LinuxUiMainTests
             var state = (await RunAsync("xprop", "-id", overlayId, "_NET_WM_STATE")).Out;
             Check(state.Contains("_NET_WM_STATE_ABOVE"), "overlay is kept above (" + state.Trim() + ")");
             Check(state.Contains("SKIP_TASKBAR"), "overlay has no taskbar entry");
+            var wmHints = (await RunAsync("xprop", "-id", overlayId, "WM_HINTS")).Out;
+            Check(wmHints.Contains("input or input focus: False"), "overlay asks never to get the keyboard focus (" + string.Join(" ", wmHints.Split('\n', StringSplitOptions.TrimEntries)) + ")");
             await Shot("x11-overlay-working");
 
             // Around a capture: hidden before the screenshot, back afterwards.

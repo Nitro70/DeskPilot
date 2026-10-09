@@ -168,6 +168,8 @@ public sealed class OverlayController : IInputActionObserver, ICaptureObserver, 
             if (!w.IsVisible)
             {
                 Place(w);
+                // Re-applied on every map: the window manager reads the hint when the window is mapped.
+                X11WindowHints.TrySetNoInput(w);
                 w.Show();
             }
             Place(w);
