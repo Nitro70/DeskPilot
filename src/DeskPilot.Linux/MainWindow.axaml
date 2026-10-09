@@ -1,7 +1,503 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:DeskPilot.Linux.ViewModels"
+        xmlns:svc="using:DeskPilot.Linux.Services"
+        xmlns:ctl="using:DeskPilot.Linux.Controls"
         x:Class="DeskPilot.Linux.MainWindow"
-        Title="DeskPilot" Width="980" Height="720">
-    <!-- STUB: owned by the Linux main UI agent. -->
-    <TextBlock Text="DeskPilot (UI stub)" HorizontalAlignment="Center" VerticalAlignment="Center" />
+        x:DataType="vm:MainViewModel"
+        Title="DeskPilot"
+        Icon="avares://deskpilot/Assets/DeskPilot.png"
+        Width="980" Height="720" MinWidth="760" MinHeight="480"
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource BgBrush}" Foreground="{DynamicResource TextBrush}">
+
+    <Window.KeyBindings>
+        <KeyBinding Gesture="Ctrl+N" Command="{Binding NewConversationCommand}" />
+        <KeyBinding Gesture="Ctrl+OemComma" Command="{Binding OpenSettingsCommand}" />
+        <KeyBinding Gesture="Escape" Command="{Binding StopCommand}" />
+    </Window.KeyBindings>
+
+    <Window.Styles>
+        <Style Selector="Border.pill">
+            <Setter Property="CornerRadius" Value="12" />
+            <Setter Property="Padding" Value="10,4" />
+            <Setter Property="Background" Value="{DynamicResource Panel2Brush}" />
+        </Style>
+        <Style Selector="Border.pill TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource SubtleTextBrush}" />
+        </Style>
+        <Style Selector="Border.pill Ellipse">
+            <Setter Property="Fill" Value="{DynamicResource SubtleTextBrush}" />
+        </Style>
+        <Style Selector="Border.pill.active">
+            <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+        </Style>
+        <Style Selector="Border.pill.active TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource AccentHoverBrush}" />
+        </Style>
+        <Style Selector="Border.pill.active Ellipse">
+            <Setter Property="Fill" Value="{DynamicResource AccentHoverBrush}" />
+        </Style>
+        <Style Selector="Border.pill.stopping">
+            <Setter Property="Background" Value="{DynamicResource WarningSoftBrush}" />
+        </Style>
+        <Style Selector="Border.pill.stopping TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource WarningBrush}" />
+        </Style>
+        <Style Selector="Border.pill.stopping Ellipse">
+            <Setter Property="Fill" Value="{DynamicResource WarningBrush}" />
+        </Style>
+        <Style Selector="Border.pill.error">
+            <Setter Property="Background" Value="{DynamicResource DangerSoftBrush}" />
+        </Style>
+        <Style Selector="Border.pill.error TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource DangerBrush}" />
+        </Style>
+        <Style Selector="Border.pill.error Ellipse">
+            <Setter Property="Fill" Value="{DynamicResource DangerBrush}" />
+        </Style>
+
+        <Style Selector="ToggleButton.thinking">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="6,3" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Foreground" Value="{DynamicResource SubtleTextBrush}" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="ToggleButton.thinking:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource HoverBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+        </Style>
+        <Style Selector="ToggleButton.thinking:checked /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource SubtleTextBrush}" />
+        </Style>
+        <Style Selector="ToggleButton.thinking:checked:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource HoverBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+        </Style>
+        <Style Selector="ToggleButton.thinking PathIcon.chevron">
+            <Setter Property="RenderTransform" Value="rotate(0deg)" />
+        </Style>
+        <Style Selector="ToggleButton.thinking:checked PathIcon.chevron">
+            <Setter Property="RenderTransform" Value="rotate(90deg)" />
+        </Style>
+
+        <Style Selector="Border.step">
+            <Setter Property="Background" Value="{DynamicResource PanelBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+        </Style>
+        <Style Selector="Border.step PathIcon.tool">
+            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+        </Style>
+        <Style Selector="Border.step.error">
+            <Setter Property="Background" Value="{DynamicResource DangerSoftBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource DangerBrush}" />
+        </Style>
+        <Style Selector="Border.step.error PathIcon.tool">
+            <Setter Property="Foreground" Value="{DynamicResource DangerBrush}" />
+        </Style>
+
+        <Style Selector="Grid.status PathIcon">
+            <Setter Property="Foreground" Value="{DynamicResource MutedTextBrush}" />
+        </Style>
+        <Style Selector="Grid.status SelectableTextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource SubtleTextBrush}" />
+        </Style>
+        <Style Selector="Grid.status.warning PathIcon">
+            <Setter Property="Foreground" Value="{DynamicResource WarningBrush}" />
+        </Style>
+        <Style Selector="Grid.status.warning SelectableTextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource WarningBrush}" />
+        </Style>
+        <Style Selector="Grid.status.error PathIcon">
+            <Setter Property="Foreground" Value="{DynamicResource DangerBrush}" />
+        </Style>
+        <Style Selector="Grid.status.error SelectableTextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource DangerBrush}" />
+        </Style>
+
+        <Style Selector="PathIcon.outcome">
+            <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}" />
+        </Style>
+        <Style Selector="PathIcon.outcome.warn">
+            <Setter Property="Foreground" Value="{DynamicResource WarningBrush}" />
+        </Style>
+        <Style Selector="PathIcon.outcome.fail">
+            <Setter Property="Foreground" Value="{DynamicResource DangerBrush}" />
+        </Style>
+
+        <Style Selector="Button.thumb">
+            <Setter Property="Padding" Value="2" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Background" Value="{DynamicResource InputBgBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+        </Style>
+        <Style Selector="Button.thumb:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource InputBgBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+        </Style>
+
+        <Style Selector="Button.small">
+            <Setter Property="Padding" Value="8,3" />
+            <Setter Property="MinHeight" Value="26" />
+            <Setter Property="FontSize" Value="12" />
+        </Style>
+
+        <Style Selector="Border.composer">
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+        </Style>
+        <Style Selector="Border.composer:focus-within">
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+        </Style>
+
+        <!-- The composer's text box draws no box of its own: the surrounding card is the box. -->
+        <Style Selector="TextBox.composer">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="8,9" />
+            <Setter Property="FontSize" Value="14" />
+        </Style>
+        <Style Selector="TextBox.composer:pointerover /template/ Border#PART_BorderElement, TextBox.composer:focus /template/ Border#PART_BorderElement">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+
+        <Style Selector="TextBlock.hotkey">
+            <Setter Property="Foreground" Value="{DynamicResource SubtleTextBrush}" />
+        </Style>
+        <Style Selector="TextBlock.hotkey.problem">
+            <Setter Property="Foreground" Value="{DynamicResource WarningBrush}" />
+            <Setter Property="TextDecorations" Value="Strikethrough" />
+        </Style>
+        <Style Selector="TextBlock.vault">
+            <Setter Property="Foreground" Value="{DynamicResource MutedTextBrush}" />
+        </Style>
+        <Style Selector="TextBlock.vault.on">
+            <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}" />
+        </Style>
+        <Style Selector="TextBlock.note">
+            <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}" />
+        </Style>
+        <Style Selector="TextBlock.note.warn">
+            <Setter Property="Foreground" Value="{DynamicResource WarningBrush}" />
+        </Style>
+    </Window.Styles>
+
+    <Grid RowDefinitions="Auto,*,Auto,Auto">
+
+        <!-- ============================================== Top bar -->
+        <Border Grid.Row="0" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource BorderBrush}"
+                BorderThickness="0,0,0,1" Padding="14,10">
+            <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto,Auto">
+                <ComboBox x:Name="ProfileBox" Grid.Column="0" Width="200"
+                          ItemsSource="{Binding Profiles}" SelectedItem="{Binding SelectedProfile}"
+                          IsEnabled="{Binding IsIdle}"
+                          ToolTip.Tip="Provider profile (add or edit profiles in Settings)"
+                          AutomationProperties.Name="Provider profile">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:ProfileOption">
+                            <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+
+                <ComboBox x:Name="ModelBox" Grid.Column="1" Width="230" Margin="8,0,0,0"
+                          IsEditable="True"
+                          ItemsSource="{Binding Models}" SelectedItem="{Binding SelectedModel}"
+                          Text="{Binding ModelText, UpdateSourceTrigger=LostFocus}"
+                          PlaceholderText="Model id"
+                          ToolTip.Tip="Model: pick one or type any model id the provider accepts"
+                          AutomationProperties.Name="Model">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:ModelOption">
+                            <StackPanel>
+                                <TextBlock Text="{Binding Id}" FontSize="13" />
+                                <TextBlock Text="{Binding DisplayName}" FontSize="11" Foreground="{DynamicResource SubtleTextBrush}"
+                                           IsVisible="{Binding HasDisplayName}" />
+                                <TextBlock Text="{Binding Hints}" FontSize="11" Foreground="{DynamicResource MutedTextBrush}"
+                                           IsVisible="{Binding HasHints}" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+
+                <Button Grid.Column="2" Margin="2,0,0,0" Classes="icon"
+                        Command="{Binding RefreshModelsCommand}"
+                        ToolTip.Tip="{Binding RefreshModelsTooltip}" AutomationProperties.Name="Refresh the model list">
+                    <PathIcon Data="{x:Static svc:IconGeometries.Refresh}" />
+                </Button>
+
+                <StackPanel Grid.Column="3" Orientation="Horizontal" Margin="12,0,0,0" VerticalAlignment="Center">
+                    <TextBlock Text="Thinking" FontSize="12" Foreground="{DynamicResource SubtleTextBrush}"
+                               VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <Border Classes="segmented" AutomationProperties.Name="Thinking">
+                        <StackPanel Orientation="Horizontal">
+                            <RadioButton Classes="segmented" GroupName="ThinkingMode" Content="Auto"
+                                         IsChecked="{Binding IsThinkingAuto}" ToolTip.Tip="Thinking: provider default"
+                                         AutomationProperties.Name="Thinking auto" />
+                            <RadioButton Classes="segmented" GroupName="ThinkingMode" Content="On"
+                                         IsChecked="{Binding IsThinkingOn}" ToolTip.Tip="Thinking on: slower, more careful"
+                                         AutomationProperties.Name="Thinking on" />
+                            <RadioButton Classes="segmented" GroupName="ThinkingMode" Content="Off"
+                                         IsChecked="{Binding IsThinkingOff}" ToolTip.Tip="Thinking off: fastest"
+                                         AutomationProperties.Name="Thinking off" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <StackPanel Grid.Column="4" Orientation="Horizontal" Margin="12,0,0,0" VerticalAlignment="Center">
+                    <TextBlock Text="Effort" FontSize="12" Foreground="{DynamicResource SubtleTextBrush}"
+                               VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <ComboBox Width="104" ItemsSource="{Binding Efforts}" SelectedItem="{Binding Effort}"
+                              ToolTip.Tip="Reasoning effort for models that support it"
+                              AutomationProperties.Name="Effort" />
+                </StackPanel>
+
+                <Border Grid.Column="6" Classes="pill" Margin="12,0,0,0" VerticalAlignment="Center"
+                        Classes.active="{Binding IsStateActive}" Classes.stopping="{Binding IsStateStopping}"
+                        Classes.error="{Binding IsStateError}"
+                        ToolTip.Tip="Agent status" AutomationProperties.Name="{Binding StatusText}">
+                    <StackPanel Orientation="Horizontal">
+                        <Ellipse Width="7" Height="7" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding StatusText}" FontSize="12" FontWeight="SemiBold" Margin="7,0,0,0" />
+                    </StackPanel>
+                </Border>
+
+                <Button Grid.Column="7" Margin="8,0,0,0" Classes="icon"
+                        Command="{Binding OpenSettingsCommand}"
+                        ToolTip.Tip="Settings (Ctrl+,)" AutomationProperties.Name="Settings">
+                    <PathIcon Data="{x:Static svc:IconGeometries.Settings}" />
+                </Button>
+            </Grid>
+        </Border>
+
+        <!-- ============================================== Conversation -->
+        <Grid Grid.Row="1">
+            <ScrollViewer x:Name="LogScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
+                          Padding="24,10,24,10" AutomationProperties.Name="Conversation">
+                <ItemsControl x:Name="LogList" ItemsSource="{Binding Items}" Focusable="False">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <VirtualizingStackPanel />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.DataTemplates>
+
+                        <DataTemplate DataType="vm:UserMessageItem">
+                            <Grid MaxWidth="860" Margin="0,14,0,6">
+                                <Border HorizontalAlignment="Right" MaxWidth="640" Margin="96,0,0,0" Padding="14,9"
+                                        CornerRadius="14,14,4,14" Background="{DynamicResource UserBubbleBrush}"
+                                        BorderBrush="{DynamicResource AccentSoftBrush}" BorderThickness="1">
+                                    <SelectableTextBlock Text="{Binding Text}" FontSize="14" TextWrapping="Wrap"
+                                                         AutomationProperties.Name="Your message" />
+                                </Border>
+                            </Grid>
+                        </DataTemplate>
+
+                        <DataTemplate DataType="vm:AssistantTextItem">
+                            <Grid MaxWidth="860" Margin="0,8,0,4" ColumnDefinitions="Auto,*">
+                                <Image Source="avares://deskpilot/Assets/DeskPilot.png" Width="26" Height="26" Margin="0,1,12,0"
+                                       VerticalAlignment="Top" RenderOptions.BitmapInterpolationMode="HighQuality"
+                                       AutomationProperties.Name="DeskPilot" />
+                                <ctl:MarkdownView Grid.Column="1" Markdown="{Binding Text}" TextElement.FontSize="14"
+                                                  AutomationProperties.Name="DeskPilot reply" />
+                            </Grid>
+                        </DataTemplate>
+
+                        <DataTemplate DataType="vm:ThinkingItem">
+                            <StackPanel MaxWidth="860" Margin="0,2,0,2" IsVisible="{Binding IsShown}">
+                                <ToggleButton Classes="thinking" Margin="32,0,0,0" IsChecked="{Binding IsExpanded}"
+                                              ToolTip.Tip="The model's reasoning" AutomationProperties.Name="Thinking">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <PathIcon Classes="chevron" Width="10" Height="10" Data="{x:Static svc:IconGeometries.ChevronRight}" />
+                                        <TextBlock Text="Thinking" FontStyle="Italic" FontSize="12.5" />
+                                        <TextBlock Text="…" FontSize="12.5" IsVisible="{Binding IsStreaming}" />
+                                    </StackPanel>
+                                </ToggleButton>
+                                <Border Margin="38,4,0,2" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="2,0,0,0"
+                                        Padding="12,2,0,2" IsVisible="{Binding IsExpanded}">
+                                    <SelectableTextBlock Text="{Binding Text}" TextWrapping="Wrap"
+                                                         FontSize="12.5" FontStyle="Italic" Foreground="{DynamicResource SubtleTextBrush}"
+                                                         AutomationProperties.Name="Thinking text" />
+                                </Border>
+                            </StackPanel>
+                        </DataTemplate>
+
+                        <DataTemplate DataType="vm:ToolStepItem">
+                            <Grid MaxWidth="860" Margin="0,2,0,2">
+                                <Border Classes="step" Classes.error="{Binding IsError}" Margin="38,0,0,0" Padding="10,7"
+                                        CornerRadius="8" BorderThickness="1"
+                                        ToolTip.Tip="{Binding ResultTooltip}">
+                                    <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto,Auto">
+                                        <PathIcon Classes="tool" Data="{Binding Icon, Converter={x:Static svc:IconGeometryConverter.Instance}}"
+                                                  VerticalAlignment="Center" Margin="0,0,10,0" />
+                                        <TextBlock Grid.Column="1" Text="{Binding Summary}" FontSize="13" VerticalAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="10,0,0,0" Spacing="6">
+                                            <TextBlock Text="running" FontSize="11.5" FontStyle="Italic" Foreground="{DynamicResource MutedTextBrush}"
+                                                       IsVisible="{Binding IsRunning}" />
+                                            <TextBlock Text="{Binding DurationText}" FontSize="11.5" Foreground="{DynamicResource MutedTextBrush}" />
+                                        </StackPanel>
+                                        <SelectableTextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,4,0,0"
+                                                             Text="{Binding ResultPreview}" FontSize="12" TextWrapping="Wrap"
+                                                             Foreground="{DynamicResource DangerBrush}" IsVisible="{Binding IsError}" />
+                                        <Button Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,8,0,2" HorizontalAlignment="Left"
+                                                Classes="thumb" IsVisible="{Binding HasImage}" Click="OnThumbnailClick"
+                                                ToolTip.Tip="Open the screenshot" AutomationProperties.Name="Open the screenshot">
+                                            <Image Source="{Binding Thumbnail}" MaxWidth="240" MaxHeight="150" Stretch="Uniform"
+                                                   RenderOptions.BitmapInterpolationMode="HighQuality" />
+                                        </Button>
+                                    </Grid>
+                                </Border>
+                            </Grid>
+                        </DataTemplate>
+
+                        <DataTemplate DataType="vm:StatusLineItem">
+                            <Grid MaxWidth="860" Margin="0,4,0,4">
+                                <Grid Classes="status" Classes.warning="{Binding IsWarning}" Classes.error="{Binding IsError}"
+                                      Margin="38,0,0,0" ColumnDefinitions="Auto,*">
+                                    <PathIcon Width="12" Height="12" Data="{Binding Icon, Converter={x:Static svc:IconGeometryConverter.Instance}}"
+                                              Margin="0,2,8,0" VerticalAlignment="Top" />
+                                    <SelectableTextBlock Grid.Column="1" Text="{Binding Message}" FontSize="12.5" TextWrapping="Wrap"
+                                                         AutomationProperties.Name="Status" />
+                                </Grid>
+                            </Grid>
+                        </DataTemplate>
+
+                        <DataTemplate DataType="vm:TurnFooterItem">
+                            <Grid MaxWidth="860" Margin="0,6,0,16">
+                                <StackPanel Margin="38,0,0,0">
+                                    <Border HorizontalAlignment="Left" CornerRadius="10" Padding="10,3" Background="{DynamicResource PanelBrush}"
+                                            BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
+                                        <StackPanel Orientation="Horizontal">
+                                            <PathIcon Classes="outcome" Classes.warn="{Binding IsCancelled}" Classes.fail="{Binding IsProblem}"
+                                                      Width="11" Height="11"
+                                                      Data="{Binding Icon, Converter={x:Static svc:IconGeometryConverter.Instance}}"
+                                                      VerticalAlignment="Center" Margin="0,0,7,0" />
+                                            <TextBlock Text="{Binding Text}" FontSize="11.5" Foreground="{DynamicResource SubtleTextBrush}"
+                                                       VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </Border>
+                                    <SelectableTextBlock Text="{Binding Error}" Margin="2,6,0,0" TextWrapping="Wrap"
+                                                         FontSize="12.5" Foreground="{DynamicResource DangerBrush}"
+                                                         IsVisible="{Binding HasError}" AutomationProperties.Name="Error" />
+                                </StackPanel>
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.DataTemplates>
+                </ItemsControl>
+            </ScrollViewer>
+
+            <StackPanel x:Name="EmptyState" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="540" Margin="24"
+                        IsVisible="{Binding IsEmpty}">
+                <Image Source="avares://deskpilot/Assets/DeskPilot.png" Width="56" Height="56"
+                       RenderOptions.BitmapInterpolationMode="HighQuality" />
+                <TextBlock Text="What should DeskPilot do?" FontSize="21" FontWeight="SemiBold"
+                           HorizontalAlignment="Center" Margin="0,16,0,6" />
+                <TextBlock Classes="caption" FontSize="13" TextAlignment="Center"
+                           Text="Describe a task in plain words. DeskPilot looks at your screen and uses the mouse and keyboard to do it. You can take back control at any time." />
+                <TextBlock Text="{Binding StopHotkeyText}" FontSize="12" HorizontalAlignment="Center" Margin="0,8,0,0"
+                           Foreground="{DynamicResource AccentHoverBrush}" />
+                <ItemsControl ItemsSource="{Binding Examples}" Margin="0,20,0,0" Focusable="False">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="x:String">
+                            <Button Content="{Binding}" Margin="0,4" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                    Padding="14,8" Background="{DynamicResource PanelBrush}" Click="OnExampleClick"
+                                    ToolTip.Tip="Put this example in the message box" />
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+
+            <Button x:Name="JumpToLatest" Classes="accent" HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                    Margin="0,0,0,12" Padding="12,4" MinHeight="28" IsVisible="False" Click="OnJumpToLatest"
+                    ToolTip.Tip="Scroll to the newest messages" AutomationProperties.Name="Jump to latest">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <PathIcon Width="11" Height="11" Data="{x:Static svc:IconGeometries.ArrowDown}" />
+                    <TextBlock Text="Jump to latest" FontSize="12" />
+                </StackPanel>
+            </Button>
+        </Grid>
+
+        <!-- ============================================== Composer -->
+        <Border Grid.Row="2" Padding="24,4,24,12">
+            <Border x:Name="Composer" Classes="composer" MaxWidth="900" CornerRadius="12" Padding="6,6,6,4" BorderThickness="1"
+                    Background="{DynamicResource CardBrush}">
+                <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
+                    <TextBox x:Name="InputBox" Classes="composer"
+                             Text="{Binding InputText}"
+                             AcceptsReturn="True" TextWrapping="Wrap" MinHeight="44" MaxHeight="190"
+                             PlaceholderText="Tell DeskPilot what to do..."
+                             AutomationProperties.Name="Message to DeskPilot"
+                             AutomationProperties.HelpText="Enter sends, Shift+Enter adds a new line" />
+
+                    <Button x:Name="SendButton" Grid.Column="1" Width="40" Height="40" MinHeight="0" Margin="6,2,2,2" Padding="0"
+                            VerticalAlignment="Bottom" Classes="accent" Classes.danger="{Binding IsBusy}"
+                            Command="{Binding SendOrStopCommand}"
+                            ToolTip.Tip="{Binding SendButtonTooltip}"
+                            AutomationProperties.Name="{Binding SendButtonText}">
+                        <PathIcon Width="16" Height="16" Data="{Binding SendButtonIcon, Converter={x:Static svc:IconGeometryConverter.Instance}}" />
+                    </Button>
+
+                    <Grid Grid.Row="1" Grid.ColumnSpan="2" Margin="2,2,4,0" ColumnDefinitions="Auto,*">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <Button Classes="ghost small" Command="{Binding NewConversationCommand}"
+                                    ToolTip.Tip="Forget this conversation and start fresh (Ctrl+N)"
+                                    AutomationProperties.Name="New conversation">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <PathIcon Width="11" Height="11" Data="{x:Static svc:IconGeometries.Plus}" />
+                                    <TextBlock Text="New conversation" />
+                                </StackPanel>
+                            </Button>
+                            <Button Classes="ghost small" Command="{Binding CopyLogCommand}"
+                                    ToolTip.Tip="Copy the whole conversation as text" AutomationProperties.Name="Copy log">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <PathIcon Width="11" Height="11" Data="{x:Static svc:IconGeometries.Copy}" />
+                                    <TextBlock Text="Copy log" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                        <TextBlock Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="11.5"
+                                   Foreground="{DynamicResource MutedTextBrush}"
+                                   Text="Enter to send, Shift+Enter for a new line" />
+                    </Grid>
+                </Grid>
+            </Border>
+        </Border>
+
+        <!-- ============================================== Status bar -->
+        <Border Grid.Row="3" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource BorderBrush}"
+                BorderThickness="0,1,0,0" Padding="14,5">
+            <DockPanel LastChildFill="True">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6" ToolTip.Tip="{Binding HotkeyTooltip}">
+                    <PathIcon Width="12" Height="12" Data="{x:Static svc:IconGeometries.Keyboard}"
+                              Foreground="{DynamicResource MutedTextBrush}" VerticalAlignment="Center" />
+                    <TextBlock x:Name="HotkeyText" Classes="hotkey" Classes.problem="{Binding HotkeyProblem}"
+                               Text="{Binding StopHotkeyText}" FontSize="12" VerticalAlignment="Center" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="{Binding ProfileModelText}" FontSize="12" Foreground="{DynamicResource SubtleTextBrush}"
+                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="420"
+                               ToolTip.Tip="Active profile and model" />
+                    <TextBlock Text="·" Margin="10,0" Foreground="{DynamicResource MutedTextBrush}" VerticalAlignment="Center" />
+                    <TextBlock Classes="vault" Classes.on="{Binding VaultOn}" Text="{Binding VaultText}" FontSize="12"
+                               VerticalAlignment="Center" ToolTip.Tip="{Binding VaultTooltip}" />
+                    <Border Classes="badge" Margin="10,0,0,0" Background="{DynamicResource WarningSoftBrush}"
+                            IsVisible="{Binding AdminMode}"
+                            ToolTip.Tip="Administrator mode is on: the agent may work with windows of programs running as root">
+                        <TextBlock Text="ADMIN MODE" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource WarningBrush}" />
+                    </Border>
+                    <Border Classes="badge" Margin="8,0,0,0" Background="{DynamicResource AccentSoftBrush}"
+                            IsVisible="{Binding DryRun}"
+                            ToolTip.Tip="Dry run: actions are described but the mouse and keyboard are not used">
+                        <TextBlock Text="DRY RUN" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource AccentHoverBrush}" />
+                    </Border>
+                    <TextBlock x:Name="TransientNote" Classes="note" Margin="12,0,0,0" FontSize="12" VerticalAlignment="Center"
+                               IsVisible="False" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+    </Grid>
 </Window>

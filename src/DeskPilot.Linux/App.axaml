@@ -1,9 +1,28 @@
 <Application xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="DeskPilot.Linux.App"
+             Name="DeskPilot"
              RequestedThemeVariant="Dark">
-    <!-- STUB: owned by the Linux main UI agent. -->
     <Application.Styles>
-        <FluentTheme />
+        <FluentTheme>
+            <FluentTheme.Palettes>
+                <!-- The Fluent dark palette tuned to DeskPilot's colors (blue/violet accent on near-black). -->
+                <ColorPaletteResources x:Key="Dark"
+                                       Accent="#6E7BFF"
+                                       RegionColor="#0E1016"
+                                       ErrorText="#EF5B60"
+                                       AltHigh="#0E1016" AltLow="#330E1016" AltMedium="#990E1016"
+                                       AltMediumHigh="#CC0E1016" AltMediumLow="#660E1016"
+                                       BaseHigh="#E8EAF0" BaseLow="#2A2F3B" BaseMedium="#A7ADBC"
+                                       BaseMediumHigh="#C9CDD8" BaseMediumLow="#6E7588"
+                                       ChromeAltLow="#C9CDD8" ChromeBlackHigh="#000000" ChromeBlackLow="#33000000"
+                                       ChromeBlackMedium="#CC000000" ChromeBlackMediumLow="#66000000"
+                                       ChromeDisabledHigh="#2A2F3B" ChromeDisabledLow="#6E7588" ChromeGray="#A7ADBC"
+                                       ChromeHigh="#3B4252" ChromeLow="#14171F" ChromeMedium="#1C202A"
+                                       ChromeMediumLow="#232836" ChromeWhite="#FFFFFF"
+                                       ListLow="#232836" ListMedium="#2B3142" />
+            </FluentTheme.Palettes>
+        </FluentTheme>
+        <StyleInclude Source="avares://deskpilot/Themes/Theme.axaml" />
     </Application.Styles>
 </Application>

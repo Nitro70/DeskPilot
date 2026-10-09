@@ -1,0 +1,53 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:svc="using:DeskPilot.Linux.Services"
+        x:Class="DeskPilot.Linux.Views.StartupErrorWindow"
+        Title="DeskPilot could not start"
+        Icon="avares://deskpilot/Assets/DeskPilot.png"
+        Width="620" SizeToContent="Height" MaxHeight="760" CanResize="False"
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource BgBrush}" Foreground="{DynamicResource TextBrush}">
+    <Grid Margin="24,22,24,20" RowDefinitions="Auto,Auto,Auto,Auto">
+        <Grid ColumnDefinitions="Auto,*">
+            <Border Width="40" Height="40" CornerRadius="10" Background="{DynamicResource DangerSoftBrush}" VerticalAlignment="Top">
+                <PathIcon Width="18" Height="18" Data="{x:Static svc:IconGeometries.Error}" Foreground="{DynamicResource DangerBrush}"
+                          HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+            <StackPanel Grid.Column="1" Margin="14,0,0,0">
+                <TextBlock Text="DeskPilot cannot control this desktop" FontSize="17" FontWeight="SemiBold" TextWrapping="Wrap" />
+                <TextBlock Classes="caption" Margin="0,4,0,0" FontSize="13"
+                           Text="The screen, mouse and keyboard services could not be set up for this session." />
+            </StackPanel>
+        </Grid>
+
+        <Border Grid.Row="1" Classes="card" Margin="0,16,0,0">
+            <StackPanel Spacing="4">
+                <TextBlock Text="What went wrong" FontSize="12" Foreground="{DynamicResource SubtleTextBrush}" />
+                <SelectableTextBlock x:Name="ErrorText" TextWrapping="Wrap" FontSize="13" />
+            </StackPanel>
+        </Border>
+
+        <Border x:Name="NotesCard" Grid.Row="2" Classes="card" Margin="0,12,0,0" IsVisible="False">
+            <StackPanel Spacing="6">
+                <TextBlock Text="To fix it" FontSize="12" Foreground="{DynamicResource SubtleTextBrush}" />
+                <ItemsControl x:Name="NotesList" Focusable="False">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="x:String">
+                            <Grid ColumnDefinitions="Auto,*" Margin="0,2">
+                                <TextBlock Text="•" Foreground="{DynamicResource AccentHoverBrush}" Margin="0,0,8,0" />
+                                <SelectableTextBlock Grid.Column="1" Text="{Binding}" TextWrapping="Wrap" FontSize="13" />
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </Border>
+
+        <DockPanel Grid.Row="3" Margin="0,18,0,0">
+            <Button x:Name="ExitButton" DockPanel.Dock="Right" Classes="accent" Content="Exit" MinWidth="96"
+                    IsDefault="True" IsCancel="True" Click="OnExit" />
+            <SelectableTextBlock x:Name="LogText" Classes="caption" VerticalAlignment="Center" Margin="0,0,12,0"
+                                 TextWrapping="Wrap" />
+        </DockPanel>
+    </Grid>
+</Window>

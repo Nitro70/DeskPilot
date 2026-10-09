@@ -1,0 +1,26 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="DeskPilot.Linux.Views.MessageWindow"
+        Title="DeskPilot"
+        Icon="avares://deskpilot/Assets/DeskPilot.png"
+        Width="460" SizeToContent="Height" CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource BgBrush}" Foreground="{DynamicResource TextBrush}">
+    <Grid Margin="22,20,22,18" RowDefinitions="Auto,Auto">
+        <Grid ColumnDefinitions="Auto,*">
+            <Border x:Name="IconBox" Width="36" Height="36" CornerRadius="10" Background="{DynamicResource AccentSoftBrush}" VerticalAlignment="Top">
+                <PathIcon x:Name="Glyph" Width="16" Height="16" Foreground="{DynamicResource AccentHoverBrush}"
+                          HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+            <StackPanel Grid.Column="1" Margin="14,0,0,0">
+                <TextBlock x:Name="HeadingText" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap" />
+                <SelectableTextBlock x:Name="BodyText" Margin="0,6,0,0" FontSize="13" TextWrapping="Wrap"
+                                     Foreground="{DynamicResource SubtleTextBrush}" />
+            </StackPanel>
+        </Grid>
+        <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,18,0,0">
+            <Button x:Name="PrimaryButton" Classes="accent" MinWidth="92" Click="OnPrimary" />
+            <Button x:Name="SecondaryButton" MinWidth="92" IsCancel="True" Click="OnSecondary" />
+        </StackPanel>
+    </Grid>
+</Window>
