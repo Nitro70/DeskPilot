@@ -761,6 +761,25 @@ public sealed class X11DesktopTests : IDisposable
     }
 
     [X11Fact]
+    public void Types_more_unlisted_characters_than_spare_keys_and_restores_the_keymap()
+    {
+        var sparesBefore = _input.KeymapForTests().SpareKeycodes(1000);
+        _out.WriteLine($"spare keycodes before: {sparesBefore.Count}");
+        var title = UniqueTitle();
+        var p = Start("zenity", "--entry", "--title=" + title, "--text=Type here");
+        var w = WaitForWindow(title);
+        Assert.True(_windows.FocusWindow(w.Handle));
+        Thread.Sleep(500);
+
+        // 16 Greek, 5 Cyrillic and 2 symbol characters: more distinct keysyms than the 10 spare keys used at once.
+        const string text = "αβγδεζηθικλμνξοπ Привет ✓€";
+        _input.TypeText(text, 0);
+        _input.PressCombo(KeyCombo.Parse("enter"));
+        Assert.Equal(text, ReadOutput(p));
+        Assert.Equal(sparesBefore, _input.KeymapForTests().SpareKeycodes(1000));
+    }
+
+    [X11Fact]
     public void Key_combos_and_shifted_characters()
     {
         var title = UniqueTitle();
