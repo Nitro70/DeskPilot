@@ -1,0 +1,94 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:DeskPilot.Linux.ViewModels"
+        xmlns:svc="using:DeskPilot.Linux.Services"
+        x:Class="DeskPilot.Linux.Views.ConfirmWindow"
+        x:DataType="vm:ConfirmViewModel"
+        Title="DeskPilot: allow this action?"
+        Icon="avares://deskpilot/Assets/DeskPilot.png"
+        Width="500" SizeToContent="Height" CanResize="False"
+        WindowStartupLocation="CenterScreen" Topmost="True" ShowInTaskbar="True"
+        Background="{DynamicResource BgBrush}" Foreground="{DynamicResource TextBrush}">
+    <Window.Styles>
+        <Style Selector="Border.risk">
+            <Setter Property="Background" Value="{DynamicResource Panel2Brush}" />
+        </Style>
+        <Style Selector="Border.risk TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource SubtleTextBrush}" />
+        </Style>
+        <Style Selector="Border.risk.low">
+            <Setter Property="Background" Value="{DynamicResource SuccessSoftBrush}" />
+        </Style>
+        <Style Selector="Border.risk.low TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}" />
+        </Style>
+        <Style Selector="Border.risk.medium">
+            <Setter Property="Background" Value="{DynamicResource WarningSoftBrush}" />
+        </Style>
+        <Style Selector="Border.risk.medium TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource WarningBrush}" />
+        </Style>
+        <Style Selector="Border.risk.high">
+            <Setter Property="Background" Value="{DynamicResource DangerSoftBrush}" />
+        </Style>
+        <Style Selector="Border.risk.high TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource DangerBrush}" />
+        </Style>
+        <Style Selector="SelectableTextBlock.value.mono">
+            <Setter Property="FontFamily" Value="{DynamicResource MonoFont}" />
+        </Style>
+    </Window.Styles>
+
+    <Grid Margin="22,20,22,18" RowDefinitions="Auto,Auto,Auto">
+        <Grid ColumnDefinitions="Auto,*">
+            <Border Width="36" Height="36" CornerRadius="10" Background="{DynamicResource WarningSoftBrush}" VerticalAlignment="Top">
+                <PathIcon Width="16" Height="16" Data="{x:Static svc:IconGeometries.Warning}"
+                          Foreground="{DynamicResource WarningBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+            <StackPanel Grid.Column="1" Margin="14,0,0,0">
+                <TextBlock Text="DeskPilot wants to do this" FontSize="16" FontWeight="SemiBold" />
+                <TextBlock Classes="caption" Margin="0,3,0,0"
+                           Text="Allow it only if it is part of what you asked for. The agent waits until you decide." />
+            </StackPanel>
+        </Grid>
+
+        <Border Grid.Row="1" Classes="card" Margin="0,16,0,0">
+            <StackPanel>
+                <DockPanel LastChildFill="True">
+                    <Border DockPanel.Dock="Right" Classes="badge risk" Margin="12,1,0,0" VerticalAlignment="Top"
+                            Classes.low="{Binding IsLowRisk}" Classes.medium="{Binding IsMediumRisk}" Classes.high="{Binding IsHighRisk}"
+                            AutomationProperties.Name="{Binding RiskText}">
+                        <TextBlock Text="{Binding RiskText}" FontSize="11" FontWeight="SemiBold" />
+                    </Border>
+                    <TextBlock Text="{Binding Summary}" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap" />
+                </DockPanel>
+
+                <ItemsControl ItemsSource="{Binding Details}" Margin="0,12,0,0" Focusable="False">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:ConfirmDetail">
+                            <Grid Margin="0,3" ColumnDefinitions="96,*">
+                                <TextBlock Text="{Binding Label}" Foreground="{DynamicResource SubtleTextBrush}" FontSize="12" Margin="0,2,8,0" />
+                                <ScrollViewer Grid.Column="1" MaxHeight="160" HorizontalScrollBarVisibility="Disabled">
+                                    <SelectableTextBlock Classes="value" Classes.mono="{Binding IsMono}" Text="{Binding Value}"
+                                                         TextWrapping="Wrap" FontSize="12.5"
+                                                         AutomationProperties.Name="{Binding Label}" />
+                                </ScrollViewer>
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </Border>
+
+        <Grid Grid.Row="2" Margin="0,18,0,0" ColumnDefinitions="Auto,*,Auto,Auto">
+            <Button x:Name="AllowAllButton" Classes="ghost" Content="Allow all for this request"
+                    Click="OnAllowAll" BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}"
+                    ToolTip.Tip="Allow this and every other action until the current request finishes" />
+            <Button x:Name="AllowButton" Grid.Column="2" Classes="accent" Content="_Allow" MinWidth="92"
+                    Click="OnAllow" ToolTip.Tip="Allow this one action" />
+            <!-- Deny is the default and cancel button: Enter or Esc never approve anything by accident. -->
+            <Button x:Name="DenyButton" Grid.Column="3" Content="_Deny" MinWidth="92" Margin="8,0,0,0"
+                    IsDefault="True" IsCancel="True" Click="OnDeny" ToolTip.Tip="Refuse this action (Enter or Esc)" />
+        </Grid>
+    </Grid>
+</Window>
