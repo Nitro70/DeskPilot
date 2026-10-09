@@ -1712,6 +1712,33 @@ public class LinuxUiSettingsTests
         }
     }
 
+    /// <summary>The public constructors detect the session themselves; in CI that is the real X11 or sway session.</summary>
+    [AvaloniaFact]
+    public void Public_constructors_read_the_real_session()
+    {
+        var expected = Environment.GetEnvironmentVariable("DESKPILOT_TEST_SESSION");
+        if (!OperatingSystem.IsLinux() || string.IsNullOrEmpty(expected)) return;
+        var dir = NewTempDir();
+        try
+        {
+            var store = new SettingsStore(Path.Combine(dir, "settings.json"));
+            var settings = new SettingsWindow(store, new FakeSession(), new FakeCatalog(), new FakeDetector { Report = MakeReport() });
+            var wayland = expected == "wayland";
+            Assert.StartsWith(wayland ? "Wayland session (sway)" : "X11 session (openbox)", settings.ViewModel.SessionText);
+            Assert.Equal(wayland, settings.ViewModel.IsWayland);
+            Assert.Equal(wayland, settings.ViewModel.HotkeySessionNote.Length > 0);
+
+            var welcome = new WelcomeWindow(store, MakeReport(), Array.Empty<string>());
+            Assert.Equal(wayland, welcome.ViewModel!.IsWayland);
+            Assert.Equal(wayland, welcome.ViewModel.StopText.Contains("no stop hotkey"));
+            Assert.True(welcome.ViewModel.SetupComplete);
+        }
+        finally
+        {
+            DeleteDir(dir);
+        }
+    }
+
     [AvaloniaFact]
     public void Windows_parse_from_xaml_with_their_designer_constructors()
     {
