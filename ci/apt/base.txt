@@ -1,0 +1,23 @@
+# Base desktop test environment (one package per line; every ci/apt/*.txt is installed)
+xvfb
+openbox
+xterm
+x11-utils
+x11-apps
+xdotool
+xclip
+xsel
+dbus-x11
+dbus-user-session
+at-spi2-core
+zenity
+fonts-dejavu-core
+sway
+grim
+wtype
+wlrctl
+wl-clipboard
+libxtst6
+libxrandr2
+libxfixes3
+libxi6

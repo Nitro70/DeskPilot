@@ -25,10 +25,9 @@ jobs:
       - name: Install desktop test environment
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends \
-            xvfb openbox xterm x11-utils x11-apps xdotool xclip xsel \
-            dbus-x11 dbus-user-session at-spi2-core zenity fonts-dejavu-core \
-            sway grim wtype wlrctl wl-clipboard libxtst6 libxrandr2 libxfixes3 libxi6
+          # Every module lists its packages in ci/apt/<module>.txt.
+          sudo apt-get install -y -qq --no-install-recommends $(cat ci/apt/*.txt | sed 's/#.*//' | xargs)
+          for f in ci/setup.d/*.sh; do sudo bash "$f"; done
 
       - name: Build
         run: dotnet build tests/DeskPilot.Linux.Tests -c Release
