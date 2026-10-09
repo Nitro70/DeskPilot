@@ -74,7 +74,11 @@ internal static class PortalNames
 internal sealed class PortalBus : IPortalBus, IDisposable
 {
     private readonly SemaphoreSlim _connectLock = new(1, 1);
+    private readonly string? _address;
     private DBusConnection? _connection;
+
+    /// <param name="address">A D-Bus address; null for the session bus.</param>
+    public PortalBus(string? address = null) => _address = address;
 
     private async Task<DBusConnection> ConnectionAsync(CancellationToken ct)
     {
@@ -83,7 +87,7 @@ internal sealed class PortalBus : IPortalBus, IDisposable
         try
         {
             if (_connection != null) return _connection;
-            var address = DBusAddress.Session;
+            var address = _address ?? DBusAddress.Session;
             if (string.IsNullOrEmpty(address)) throw new InvalidOperationException("There is no D-Bus session bus (DBUS_SESSION_BUS_ADDRESS is not set), so xdg-desktop-portal cannot be reached.");
             var c = new DBusConnection(address);
             try

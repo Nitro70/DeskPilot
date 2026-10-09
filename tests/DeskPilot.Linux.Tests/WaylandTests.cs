@@ -382,16 +382,17 @@ public class WaylandKeyTests
     [Fact]
     public void Wtype_arguments()
     {
-        Assert.Equal(new[] { "--", "-héllo\nwörld 日本" }, WtypeKeyboardBackend.TypeArgs("-héllo\r\nwörld 日本", 0));
-        Assert.Equal(new[] { "-d", "12", "--", "x" }, WtypeKeyboardBackend.TypeArgs("x\0", 12));
+        // Every run starts with a short sleep so apps can bind the new keyboard before the first key.
+        Assert.Equal(new[] { "-s", "50", "--", "-héllo\nwörld 日本" }, WtypeKeyboardBackend.TypeArgs("-héllo\r\nwörld 日本", 0));
+        Assert.Equal(new[] { "-s", "50", "-d", "12", "--", "x" }, WtypeKeyboardBackend.TypeArgs("x\0", 12));
         Assert.Null(WtypeKeyboardBackend.TypeArgs("\0\u0001", 0));
-        Assert.Equal(new[] { "-M", "ctrl", "-M", "shift", "-k", "t", "-m", "shift", "-m", "ctrl" }, WtypeKeyboardBackend.ComboArgs(new[] { "ctrl", "shift" }, "t"));
-        Assert.Equal(new[] { "-k", "Return" }, WtypeKeyboardBackend.ComboArgs(Array.Empty<string>(), "enter"));
-        Assert.Equal(new[] { "-k", "Super_L" }, WtypeKeyboardBackend.ComboArgs(new[] { "win" }, null));
-        Assert.Equal(new[] { "-M", "ctrl", "-k", "Alt_L", "-m", "ctrl" }, WtypeKeyboardBackend.ComboArgs(new[] { "ctrl", "alt" }, null));
-        Assert.Equal(new[] { "-M", "logo", "-k", "U002B", "-m", "logo" }, WtypeKeyboardBackend.ComboArgs(new[] { "win" }, "+"));
-        Assert.Equal(new[] { "-M", "shift", "-s", "3600000" }, WtypeKeyboardBackend.HoldArgs("shift"));
-        Assert.Equal(new[] { "-P", "Delete", "-s", "3600000" }, WtypeKeyboardBackend.HoldArgs("delete"));
+        Assert.Equal(new[] { "-s", "50", "-M", "ctrl", "-M", "shift", "-k", "t", "-m", "shift", "-m", "ctrl" }, WtypeKeyboardBackend.ComboArgs(new[] { "ctrl", "shift" }, "t"));
+        Assert.Equal(new[] { "-s", "50", "-k", "Return" }, WtypeKeyboardBackend.ComboArgs(Array.Empty<string>(), "enter"));
+        Assert.Equal(new[] { "-s", "50", "-k", "Super_L" }, WtypeKeyboardBackend.ComboArgs(new[] { "win" }, null));
+        Assert.Equal(new[] { "-s", "50", "-M", "ctrl", "-k", "Alt_L", "-m", "ctrl" }, WtypeKeyboardBackend.ComboArgs(new[] { "ctrl", "alt" }, null));
+        Assert.Equal(new[] { "-s", "50", "-M", "logo", "-k", "U002B", "-m", "logo" }, WtypeKeyboardBackend.ComboArgs(new[] { "win" }, "+"));
+        Assert.Equal(new[] { "-s", "50", "-M", "shift", "-s", "3600000" }, WtypeKeyboardBackend.HoldArgs("shift"));
+        Assert.Equal(new[] { "-s", "50", "-P", "Delete", "-s", "3600000" }, WtypeKeyboardBackend.HoldArgs("delete"));
     }
 
     [Fact]
@@ -883,6 +884,389 @@ public class WaylandCaptureLogicTests
     }
 }
 
+// ================================================================================================ real D-Bus, fake portal
+
+/// <summary>A private dbus-daemon for one test, so a fake portal can own the real portal's names safely.</summary>
+internal sealed class PrivateBus : IDisposable
+{
+    private readonly Process _daemon;
+    private readonly string _dir;
+
+    public string Address { get; }
+
+    private PrivateBus(Process daemon, string dir, string address)
+    {
+        _daemon = daemon;
+        _dir = dir;
+        Address = address;
+    }
+
+    public static PrivateBus Start()
+    {
+        var exe = DeskPilot.Core.Runtime.ExecutableLocator.Find("dbus-daemon");
+        Assert.SkipWhen(exe == null, "dbus-daemon is not installed");
+        var dir = Path.Combine(Path.GetTempPath(), "dp-bus-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(dir);
+        var socket = Path.Combine(dir, "bus");
+        var config = Path.Combine(dir, "bus.conf");
+        File.WriteAllText(config,
+            "<!DOCTYPE busconfig PUBLIC \"-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN\" \"http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd\">\n" +
+            $"<busconfig><type>session</type><listen>unix:path={socket}</listen><auth>EXTERNAL</auth>" +
+            "<policy context=\"default\"><allow send_destination=\"*\" eavesdrop=\"true\"/><allow eavesdrop=\"true\"/><allow own=\"*\"/></policy></busconfig>\n");
+        var psi = new ProcessStartInfo(exe!) { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
+        psi.ArgumentList.Add("--config-file=" + config);
+        psi.ArgumentList.Add("--nofork");
+        psi.ArgumentList.Add("--nopidfile");
+        var p = Process.Start(psi)!;
+        var sw = Stopwatch.StartNew();
+        while (!File.Exists(socket) && sw.ElapsedMilliseconds < 5000 && !p.HasExited) Thread.Sleep(20);
+        Assert.True(File.Exists(socket), "the private dbus-daemon did not start: " + (p.HasExited ? p.StandardError.ReadToEnd() : "timeout"));
+        return new PrivateBus(p, dir, "unix:path=" + socket);
+    }
+
+    public void Dispose()
+    {
+        try { if (!_daemon.HasExited) _daemon.Kill(true); } catch (InvalidOperationException) { }
+        _daemon.Dispose();
+        try { Directory.Delete(_dir, true); } catch (IOException) { }
+    }
+}
+
+/// <summary>
+/// Plays xdg-desktop-portal (Screenshot, RemoteDesktop, ScreenCast) and the GNOME "Window Calls" extension on a
+/// private bus, answering like the real services: Request objects at the predictable path and Response signals.
+/// </summary>
+internal sealed class FakePortalService : IPathMethodHandler, IDisposable
+{
+    public const string WindowsPath = "/org/gnome/Shell/Extensions/Windows";
+
+    private readonly DBusConnection _connection;
+    private readonly FakePortalService? _root;
+    private readonly List<string> _log;
+
+    public string Path { get; }
+    public bool HandlesChildPaths => false;
+    public List<string> Log => _log;
+    public string? ScreenshotFile { get; set; }
+    public uint StartCode { get; set; }
+    public uint FocusedWindow { get; set; } = 101;
+
+    private FakePortalService(DBusConnection connection, string path, FakePortalService? root)
+    {
+        _connection = connection;
+        Path = path;
+        _root = root;
+        _log = root?._log ?? new List<string>();
+    }
+
+    public static async Task<FakePortalService> StartAsync(string address)
+    {
+        var c = new DBusConnection(address);
+        await c.ConnectAsync();
+        var portal = new FakePortalService(c, PortalNames.ObjectPath, null);
+        c.AddMethodHandler(portal);
+        c.AddMethodHandler(new FakePortalService(c, WindowsPath, portal));
+        await c.RequestNameAsync(PortalNames.Service, RequestNameOptions.Default);
+        await c.RequestNameAsync("org.gnome.Shell", RequestNameOptions.Default);
+        return portal;
+    }
+
+    private FakePortalService Root => _root ?? this;
+
+    public ValueTask HandleMethodAsync(MethodContext context)
+    {
+        var request = context.Request;
+        string iface = request.InterfaceAsString ?? "", member = request.MemberAsString ?? "", sender = request.SenderAsString ?? "";
+        var reader = request.GetBodyReader();
+
+        if (Path == WindowsPath)
+        {
+            switch (member)
+            {
+                case "Introspect":
+                    ReplyString(context, "<node><interface name=\"org.gnome.Shell.Extensions.Windows\"/></node>");
+                    break;
+                case "List":
+                    // Stacking order, bottom to top, like Mutter.
+                    ReplyString(context, $$"""[{"id":101,"title":"Back window","wm_class":"gedit","pid":{{Environment.ProcessId}},"focus":{{(Root.FocusedWindow == 101 ? "true" : "false")}},"in_current_workspace":true,"window_type":0},{"id":7,"title":"","wm_class":"gnome-shell","pid":1,"focus":false,"in_current_workspace":true,"window_type":2},{"id":202,"title":"Front window","wm_class":"nautilus","pid":{{Environment.ProcessId}},"focus":{{(Root.FocusedWindow == 202 ? "true" : "false")}},"in_current_workspace":true,"window_type":0}]""");
+                    break;
+                case "Details":
+                    uint id = reader.ReadUInt32();
+                    ReplyString(context, id == 101
+                        ? """{"x":0,"y":0,"width":1000,"height":800,"minimized":false,"title":"Back window"}"""
+                        : """{"x":500,"y":300,"width":600,"height":400,"minimized":false,"title":"Front window"}""");
+                    break;
+                case "Activate":
+                    Root.FocusedWindow = reader.ReadUInt32();
+                    _log.Add($"Activate {Root.FocusedWindow}");
+                    ReplyEmpty(context);
+                    break;
+                default:
+                    context.ReplyUnknownMethodError();
+                    break;
+            }
+            return ValueTask.CompletedTask;
+        }
+
+        if (iface == "org.freedesktop.DBus.Properties" && member == "Get")
+        {
+            string target = reader.ReadString();
+            uint version = target switch { PortalNames.Screenshot => 1, PortalNames.RemoteDesktop => 2, PortalNames.ScreenCast => 4, _ => 0 };
+            if (version == 0) context.ReplyError("org.freedesktop.DBus.Error.InvalidArgs", "No such interface");
+            else
+            {
+                using var w = context.CreateReplyWriter("v");
+                w.WriteVariant(VariantValue.UInt32(version));
+                context.Reply(w.CreateMessage());
+            }
+            return ValueTask.CompletedTask;
+        }
+
+        switch (member)
+        {
+            case "Screenshot":
+            {
+                reader.ReadString();
+                var o = reader.ReadDictionaryOfStringToVariantValue();
+                var path = RequestPath(sender, o["handle_token"].GetString());
+                _log.Add($"Screenshot interactive={o["interactive"].GetBool()}");
+                // The Response may come before the method reply: callers must subscribe first.
+                Respond(path, 0, new Dictionary<string, VariantValue> { ["uri"] = VariantValue.String(new Uri(ScreenshotFile!).AbsoluteUri) });
+                ReplyPath(context, path);
+                break;
+            }
+            case "CreateSession":
+            {
+                var o = reader.ReadDictionaryOfStringToVariantValue();
+                var path = RequestPath(sender, o["handle_token"].GetString());
+                var session = $"/org/freedesktop/portal/desktop/session/{sender.TrimStart(':').Replace('.', '_')}/{o["session_handle_token"].GetString()}";
+                _log.Add("CreateSession");
+                ReplyPath(context, path);
+                Respond(path, 0, new Dictionary<string, VariantValue> { ["session_handle"] = VariantValue.String(session) });
+                break;
+            }
+            case "SelectDevices":
+            case "SelectSources":
+            {
+                reader.ReadObjectPathAsString();
+                var o = reader.ReadDictionaryOfStringToVariantValue();
+                var path = RequestPath(sender, o["handle_token"].GetString());
+                var keys = string.Join(",", o.Keys.Where(k => k != "handle_token").OrderBy(k => k, StringComparer.Ordinal)
+                    .Select(k => $"{k}={(PortalValues.ToPlain(o[k]) is bool b ? (b ? "true" : "false") : PortalValues.ToPlain(o[k]))}"));
+                _log.Add($"{member} {keys}");
+                ReplyPath(context, path);
+                Respond(path, 0, new Dictionary<string, VariantValue>());
+                break;
+            }
+            case "Start":
+            {
+                reader.ReadObjectPathAsString();
+                reader.ReadString();
+                var o = reader.ReadDictionaryOfStringToVariantValue();
+                var path = RequestPath(sender, o["handle_token"].GetString());
+                _log.Add("Start");
+                ReplyPath(context, path);
+                var props = new Dict<string, VariantValue>
+                {
+                    ["position"] = Struct.Create(0, 0).AsVariantValue(),
+                    ["size"] = Struct.Create(1920, 1080).AsVariantValue(),
+                    ["source_type"] = VariantValue.UInt32(1),
+                };
+                var streams = new Tmds.DBus.Protocol.Array<Struct<uint, Dict<string, VariantValue>>> { Struct.Create(51u, props) };
+                Respond(path, StartCode, new Dictionary<string, VariantValue>
+                {
+                    ["devices"] = VariantValue.UInt32(3),
+                    ["restore_token"] = VariantValue.String("tok-2"),
+                    ["streams"] = streams.AsVariantValue(),
+                });
+                break;
+            }
+            case "NotifyPointerMotionAbsolute":
+                reader.ReadObjectPathAsString(); reader.ReadDictionaryOfStringToVariantValue();
+                _log.Add($"Motion {reader.ReadUInt32()} {reader.ReadDouble():0.#} {reader.ReadDouble():0.#}");
+                ReplyEmpty(context);
+                break;
+            case "NotifyPointerButton":
+                reader.ReadObjectPathAsString(); reader.ReadDictionaryOfStringToVariantValue();
+                _log.Add($"Button {reader.ReadInt32()} {reader.ReadUInt32()}");
+                ReplyEmpty(context);
+                break;
+            case "NotifyPointerAxisDiscrete":
+                reader.ReadObjectPathAsString(); reader.ReadDictionaryOfStringToVariantValue();
+                _log.Add($"Axis {reader.ReadUInt32()} {reader.ReadInt32()}");
+                ReplyEmpty(context);
+                break;
+            case "NotifyKeyboardKeysym":
+                reader.ReadObjectPathAsString(); reader.ReadDictionaryOfStringToVariantValue();
+                _log.Add($"Keysym 0x{reader.ReadInt32():x} {reader.ReadUInt32()}");
+                ReplyEmpty(context);
+                break;
+            default:
+                context.ReplyUnknownMethodError();
+                break;
+        }
+        return ValueTask.CompletedTask;
+    }
+
+    private static string RequestPath(string sender, string token) =>
+        $"/org/freedesktop/portal/desktop/request/{sender.TrimStart(':').Replace('.', '_')}/{token}";
+
+    private void Respond(string path, uint code, Dictionary<string, VariantValue> results)
+    {
+        using var w = _connection.GetMessageWriter();
+        w.WriteSignalHeader(null, path, "org.freedesktop.portal.Request", "Response", "ua{sv}");
+        w.WriteUInt32(code);
+        w.WriteDictionary(results);
+        _connection.TrySendMessage(w.CreateMessage());
+    }
+
+    private static void ReplyPath(MethodContext context, string path)
+    {
+        using var w = context.CreateReplyWriter("o");
+        w.WriteObjectPath(path);
+        context.Reply(w.CreateMessage());
+    }
+
+    private static void ReplyString(MethodContext context, string s)
+    {
+        using var w = context.CreateReplyWriter("s");
+        w.WriteString(s);
+        context.Reply(w.CreateMessage());
+    }
+
+    private static void ReplyEmpty(MethodContext context)
+    {
+        using var w = context.CreateReplyWriter(null!);
+        context.Reply(w.CreateMessage());
+    }
+
+    public void Dispose()
+    {
+        if (_root == null) _connection.Dispose();
+    }
+}
+
+/// <summary>The GNOME/KDE portal code paths over a real D-Bus connection (dbus-daemon), with a fake portal behind it.</summary>
+[Collection("Wayland cursor tracker")]
+public class WaylandPortalBusTests
+{
+    /// <summary>A GNOME context whose portal is the private bus and whose layout is a 1920x1080 screenshot.</summary>
+    private static WaylandContext GnomeContext(PrivateBus bus)
+    {
+        var session = new LinuxSessionInfo(LinuxSessionKind.Wayland, null, "/nonexistent/wayland-socket", "GNOME", Path.GetTempPath());
+        var ctx = new WaylandContext(session, new FakeRunner(), _ => null)
+        {
+            CaptureLayout = WaylandLayout.FromImageSize(1920, 1080, "screenshot"),
+        };
+        ctx.Portal = new PortalBus(bus.Address);
+        return ctx;
+    }
+
+    [LinuxFact]
+    public async Task Screenshot_portal_round_trip()
+    {
+        using var bus = PrivateBus.Start();
+        using var service = await FakePortalService.StartAsync(bus.Address);
+        var file = Path.Combine(Path.GetTempPath(), $"dp-shot-{Guid.NewGuid():N}.png");
+        using (var bmp = new SKBitmap(1920, 1080))
+        {
+            bmp.Erase(new SKColor(0x2f, 0x6d, 0x8c));
+            using var canvas = new SKCanvas(bmp);
+            canvas.DrawRect(1000, 500, 200, 100, new SKPaint { Color = SKColors.Red });
+            canvas.Flush();
+            using var data = bmp.Encode(SKEncodedImageFormat.Png, 90);
+            await File.WriteAllBytesAsync(file, data.ToArray(), TestContext.Current.CancellationToken);
+        }
+        service.ScreenshotFile = file;
+        var expected = await File.ReadAllBytesAsync(file, TestContext.Current.CancellationToken);
+
+        using var portal = new PortalBus(bus.Address);
+        Assert.Equal(1u, await portal.GetVersionAsync(PortalNames.Screenshot, TestContext.Current.CancellationToken));
+        Assert.Equal(0u, await portal.GetVersionAsync("org.freedesktop.portal.Nothing", TestContext.Current.CancellationToken));
+        var bytes = await PortalScreenshot.TakeAsync(portal, TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        Assert.Equal(expected, bytes);
+        Assert.False(File.Exists(file), "the portal's screenshot file must be deleted");
+        Assert.Equal("Screenshot interactive=False", service.Log.Single());
+
+        // The whole capture route: full-desktop screenshot, cropped to the request.
+        await File.WriteAllBytesAsync(file, expected, TestContext.Current.CancellationToken);
+        var ctx = GnomeContext(bus);
+        var capture = new WaylandScreenCapture(ctx, WaylandScreenCapture.RoutePortal);
+        var frame = capture.Capture(new CaptureRequest(new ScreenRect(990, 490, 100, 50), 100, 50, ImageFormatKind.Png, 90, false, 0));
+        using var crop = SKBitmap.Decode(frame.Data);
+        Assert.Equal(new SKColor(0x2f, 0x6d, 0x8c), crop.GetPixel(2, 2));
+        Assert.Equal(SKColors.Red, crop.GetPixel(50, 30));
+        Assert.Equal(WaylandScreenCapture.RoutePortal, capture.Route);
+        Assert.False(File.Exists(file));
+        ctx.Portal.Dispose();
+    }
+
+    [LinuxFact]
+    public async Task Remote_desktop_input_round_trip()
+    {
+        using var bus = PrivateBus.Start();
+        using var service = await FakePortalService.StartAsync(bus.Address);
+        try { File.Delete(PortalRemoteDesktop.DefaultTokenFile); } catch (IOException) { }
+
+        var ctx = GnomeContext(bus);
+        var sim = new WaylandInputSimulator(ctx, InputRoutes.Portal, InputRoutes.Portal);
+        sim.MoveMouse(100, 200);
+        sim.Click(MouseButton.Left, 1);
+        sim.Scroll(0, 2);
+        sim.TypeText("é€\n", 0);
+        sim.PressCombo(KeyCombo.Parse("ctrl+c"));
+        sim.KeyDown("shift");
+        sim.ReleaseAll();
+        Assert.Equal(InputRoutes.Portal, sim.PointerRoute);
+        Assert.Equal(InputRoutes.Portal, sim.KeyboardRoute);
+
+        Assert.Equal(new[]
+        {
+            "CreateSession",
+            "SelectDevices persist_mode=2,types=3",
+            "SelectSources multiple=true,types=1",
+            "Start",
+            "Motion 51 100 200",
+            "Button 272 1", "Button 272 0",
+            "Axis 0 2",
+            "Keysym 0xe9 1", "Keysym 0xe9 0", "Keysym 0x10020ac 1", "Keysym 0x10020ac 0", "Keysym 0xff0d 1", "Keysym 0xff0d 0",
+            "Keysym 0xffe3 1", "Keysym 0x63 1", "Keysym 0x63 0", "Keysym 0xffe3 0",
+            "Keysym 0xffe1 1", "Keysym 0xffe1 0",
+        }, service.Log);
+        Assert.Equal("tok-2", (await File.ReadAllTextAsync(PortalRemoteDesktop.DefaultTokenFile, TestContext.Current.CancellationToken)).Trim());
+
+        // A later session presents the saved token, so the user is not asked again.
+        service.Log.Clear();
+        var again = new WaylandInputSimulator(GnomeContext(bus), InputRoutes.Portal, InputRoutes.Portal);
+        again.MoveMouse(5, 5);
+        Assert.Contains("SelectDevices persist_mode=2,restore_token=tok-2,types=3", service.Log);
+
+        // A refused approval is a readable error.
+        service.StartCode = 1;
+        var refused = new WaylandInputSimulator(GnomeContext(bus), InputRoutes.Portal, InputRoutes.Portal);
+        var ex = Assert.Throws<InvalidOperationException>(() => refused.MoveMouse(1, 1));
+        Assert.Contains("Approve DeskPilot", ex.Message);
+    }
+
+    [LinuxFact]
+    public async Task Gnome_window_calls_round_trip()
+    {
+        using var bus = PrivateBus.Start();
+        using var service = await FakePortalService.StartAsync(bus.Address);
+        var wm = new WaylandWindowManager(GnomeContext(bus));
+        var windows = wm.ListWindows();
+        Assert.Equal(new[] { "Front window", "Back window" }, windows.Select(w => w.Title));
+        Assert.Equal(new ScreenRect(500, 300, 600, 400), windows[0].Bounds);
+        Assert.Equal(Environment.ProcessId, windows[0].ProcessId);
+        Assert.Equal("Back window", wm.GetForegroundWindow()?.Title);
+        Assert.Equal("Front window", wm.GetWindowAt(700, 500)?.Title);
+        Assert.Equal("Back window", wm.GetWindowAt(100, 100)?.Title);
+        Assert.True(wm.FocusWindow(202));
+        Assert.Contains("Activate 202", service.Log);
+        Assert.Equal("Front window", wm.GetForegroundWindow()?.Title);
+    }
+}
+
 // ================================================================================================ real session (headless sway in CI)
 
 /// <summary>A zenity window started for a test, with a unique title; killed on dispose.</summary>
@@ -1055,29 +1439,21 @@ public class WaylandSessionTests
         Assert.False(wm.IsCurrentProcessElevated);
     }
 
-    /// <summary>Types into a focused zenity entry and returns what zenity printed. Retries when another test stole focus.</summary>
-    private static string TypeIntoEntry(WaylandContext ctx, Action<WaylandInputSimulator> type, string expected)
+    /// <summary>Types into a focused zenity entry, presses Enter and returns what zenity printed.</summary>
+    private static string TypeIntoEntry(WaylandContext ctx, Action<WaylandInputSimulator> type)
     {
         var wm = new WaylandWindowManager(ctx);
         var input = new WaylandInputSimulator(ctx);
-        string last = "";
-        for (int attempt = 0; attempt < 3; attempt++)
-        {
-            using var app = ZenityApp.Start("--entry", "--text=type here");
-            var w = app.WaitForWindow(wm);
-            Assert.True(wm.FocusWindow(w.Handle));
-            Thread.Sleep(300);
-            type(input);
-            input.PressCombo(KeyCombo.Parse("enter"));
-            var result = app.WaitForExit();
-            Assert.Equal(InputRoutes.Wtype, input.KeyboardRoute);
-            if (result is { ExitCode: 0 } r)
-            {
-                last = r.Output;
-                if (last == expected) return last;
-            }
-        }
-        return last;
+        using var app = ZenityApp.Start("--entry", "--text=type here");
+        var w = app.WaitForWindow(wm);
+        Assert.True(wm.FocusWindow(w.Handle));
+        Thread.Sleep(300);
+        type(input);
+        input.PressCombo(KeyCombo.Parse("enter"));
+        var result = app.WaitForExit();
+        Assert.Equal(InputRoutes.Wtype, input.KeyboardRoute);
+        Assert.True(result is { ExitCode: 0 }, $"zenity did not accept the entry (exit {result?.ExitCode})");
+        return result!.Value.Output;
     }
 
     [WaylandFact]
@@ -1085,7 +1461,7 @@ public class WaylandSessionTests
     {
         var ctx = Sway();
         const string text = "Hello wörld, ñandú 日本語 € ✓ -dash";
-        Assert.Equal(text, TypeIntoEntry(ctx, i => i.TypeText(text, 0), text));
+        Assert.Equal(text, TypeIntoEntry(ctx, i => i.TypeText(text, 0)));
     }
 
     [WaylandFact]
@@ -1098,13 +1474,13 @@ public class WaylandSessionTests
             i.PressCombo(KeyCombo.Parse("ctrl+a"));
             i.TypeText("xyzq", 0);
             i.PressCombo(KeyCombo.Parse("backspace"));
-        }, "xyz"));
+        }));
         Assert.Equal("a1b", TypeIntoEntry(ctx, i =>
         {
-            i.TypeText("ab", 0);
+            i.TypeText("ab", 5);
             i.PressCombo(KeyCombo.Parse("left"));
             i.PressCombo(KeyCombo.Parse("1"));
-        }, "a1b"));
+        }));
     }
 
     [WaylandFact]
@@ -1115,7 +1491,7 @@ public class WaylandSessionTests
         {
             i.KeyDown("q");
             i.KeyUp("q");
-        }, "q"));
+        }));
     }
 
     private static (ZenityApp A, WindowInfo WA, ZenityApp B, WindowInfo WB) TwoTiledWindows(WaylandContext ctx, WaylandWindowManager wm)

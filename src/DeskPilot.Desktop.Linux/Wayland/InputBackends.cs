@@ -326,7 +326,12 @@ internal sealed class DotoolPointerBackend : IPointerBackend
 internal sealed class WtypeKeyboardBackend : IKeyboardBackend
 {
     private const int HoldMs = 3_600_000;
-    private const int HoldSettleMs = 120;
+    private const int HoldSettleMs = 250;
+    // Each wtype run adds a keyboard to the seat. On a seat with no other keyboard, apps bind it only after the seat
+    // announces it, so keys sent at once are lost: wtype waits this long after its keymap upload before the first key.
+    internal const int SettleMs = 50;
+
+    private static List<string> Settle() => new() { "-s", SettleMs.ToString(CultureInfo.InvariantCulture) };
 
     private readonly ICommandRunner _runner;
     private readonly object _gate = new();
@@ -346,7 +351,7 @@ internal sealed class WtypeKeyboardBackend : IKeyboardBackend
             sb.Append(char.ConvertFromUtf32(cp));
         }
         if (sb.Length == 0) return null;
-        var args = new List<string>();
+        var args = Settle();
         if (delayMsPerChar > 0) { args.Add("-d"); args.Add(delayMsPerChar.ToString(CultureInfo.InvariantCulture)); }
         args.Add("--");
         args.Add(sb.ToString());
@@ -366,7 +371,7 @@ internal sealed class WtypeKeyboardBackend : IKeyboardBackend
         }
         else throw new ArgumentException("A key combination needs at least one key.");
 
-        var args = new List<string>();
+        var args = Settle();
         foreach (var m in mods) { args.Add("-M"); args.Add(XkbKeys.WtypeModifier(m)); }
         args.Add("-k");
         args.Add(keyName);
@@ -377,9 +382,10 @@ internal sealed class WtypeKeyboardBackend : IKeyboardBackend
     internal static List<string> HoldArgs(string normalizedKey)
     {
         var k = XkbKeys.Resolve(normalizedKey);
-        var args = k.IsModifier
-            ? new List<string> { "-M", XkbKeys.WtypeModifier(KeyCombo.NormalizeName(normalizedKey)) }
-            : new List<string> { "-P", k.KeysymName };
+        var args = Settle();
+        args.AddRange(k.IsModifier
+            ? new[] { "-M", XkbKeys.WtypeModifier(KeyCombo.NormalizeName(normalizedKey)) }
+            : new[] { "-P", k.KeysymName });
         args.Add("-s");
         args.Add(HoldMs.ToString(CultureInfo.InvariantCulture));
         return args;

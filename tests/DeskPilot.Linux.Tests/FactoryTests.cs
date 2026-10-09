@@ -145,4 +145,18 @@ public class FactoryTests
         // The CI image has grim, wtype, swaymsg and wl-clipboard; only the accessibility bus may be absent there.
         Assert.All(notes, n => Assert.Contains("at-spi2-core", n));
     }
+
+    [WaylandFact]
+    public void Default_services_in_the_real_wayland_session_share_one_layout()
+    {
+        Assert.SkipUnless(Environment.GetEnvironmentVariable("DESKPILOT_TEST_SESSION") == "wayland", "Needs the CI headless sway session");
+        var services = LinuxDesktopFactory.CreateDefault();
+        Assert.IsType<WaylandScreenCapture>(services.Screen);
+        var monitor = Assert.Single(services.Screen.GetMonitors());
+        Assert.Equal(new DeskPilot.Core.Abstractions.ScreenRect(0, 0, 1920, 1080), monitor.Bounds);
+        Assert.NotNull(services.Windows.ListWindows());
+        var frame = services.Screen.Capture(new DeskPilot.Core.Abstractions.CaptureRequest(monitor.Bounds, 640, 360,
+            DeskPilot.Core.Abstractions.ImageFormatKind.Jpeg, 80, true, 0));
+        Assert.Equal((640, 360), (frame.Width, frame.Height));
+    }
 }

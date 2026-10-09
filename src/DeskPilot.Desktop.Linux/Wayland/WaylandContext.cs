@@ -204,5 +204,9 @@ internal sealed class WaylandContext
         {
             lock (_gate) return _portal ??= new PortalBus();
         }
+        internal set
+        {
+            lock (_gate) _portal = value;
+        }
     }
 }
