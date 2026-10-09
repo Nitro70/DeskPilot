@@ -77,7 +77,8 @@ public partial class App : Application
             DesktopServices desktop;
             try
             {
-                desktop = LinuxDesktopFactory.CreateDefault();
+                var store = _store;
+                desktop = LinuxDesktopFactory.CreateDefault(() => store.Current);
             }
             catch (Exception ex)
             {
@@ -184,7 +185,7 @@ public partial class App : Application
         }
 
         IReadOnlyList<string> notes;
-        try { notes = LinuxDesktopFactory.DescribeMissingTools(_sessionInfo); }
+        try { var session = _sessionInfo; notes = await Task.Run(() => LinuxDesktopFactory.DescribeMissingTools(session)); }
         catch (Exception ex)
         {
             Log.Warn($"Could not list missing tools: {ex.Message}");

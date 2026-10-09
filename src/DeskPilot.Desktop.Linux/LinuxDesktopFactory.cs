@@ -18,7 +18,12 @@ public static class LinuxDesktopFactory
     /// </summary>
     public static DesktopServices CreateDefault() => CreateFor(LinuxSession.Detect());
 
-    public static DesktopServices CreateFor(LinuxSessionInfo session)
+    /// <param name="settings">Live settings, so the launcher refuses Safety.ElevatedLaunchTargets as edited by the user.</param>
+    public static DesktopServices CreateDefault(Func<DeskPilot.Core.Settings.AppSettings> settings) => CreateFor(LinuxSession.Detect(), settings);
+
+    public static DesktopServices CreateFor(LinuxSessionInfo session) => CreateFor(session, null);
+
+    public static DesktopServices CreateFor(LinuxSessionInfo session, Func<DeskPilot.Core.Settings.AppSettings>? settings)
     {
         ArgumentNullException.ThrowIfNull(session);
         IScreenCapture screen;
@@ -41,7 +46,7 @@ public static class LinuxDesktopFactory
             default:
                 throw new InvalidOperationException(NoSessionMessage);
         }
-        return new DesktopServices(screen, input, windows, new AtSpiInspector(windows), new LinuxAppLauncher(), new LinuxClipboard(session), new LinuxShellRunner());
+        return new DesktopServices(screen, input, windows, new AtSpiInspector(windows), settings == null ? new LinuxAppLauncher() : new LinuxAppLauncher(() => settings().Safety.ElevatedLaunchTargets), new LinuxClipboard(session), new LinuxShellRunner());
     }
 
     /// <summary>Human-readable notes about missing helper tools for this session (shown in the UI), empty when all is well.</summary>

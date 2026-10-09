@@ -70,9 +70,12 @@ public static class SecretProtector
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             var key = RandomNumberGenerator.GetBytes(32);
             var tmp = path + ".tmp";
-            File.WriteAllText(tmp, Convert.ToBase64String(key));
-            if (!OperatingSystem.IsWindows())
-                File.SetUnixFileMode(tmp, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            var options = new FileStreamOptions { Mode = FileMode.Create, Access = FileAccess.Write };
+            // Owner-only from creation, so the key is never readable by others, not even briefly.
+            if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+            using (var stream = new FileStream(tmp, options))
+            using (var writer = new StreamWriter(stream))
+                writer.Write(Convert.ToBase64String(key));
             File.Move(tmp, path, overwrite: true);
             return _fileKey = key;
         }

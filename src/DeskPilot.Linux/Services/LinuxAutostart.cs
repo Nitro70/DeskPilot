@@ -21,7 +21,8 @@ public sealed class LinuxAutostart
     public LinuxAutostart(string? autostartDirectory = null, Func<string?>? exePath = null)
     {
         _directory = string.IsNullOrWhiteSpace(autostartDirectory) ? DefaultDirectory() : autostartDirectory;
-        _exePath = exePath ?? (() => Environment.ProcessPath);
+        // Inside an AppImage the process runs from a temporary mount that disappears; $APPIMAGE is the real file.
+        _exePath = exePath ?? (() => Environment.GetEnvironmentVariable("APPIMAGE") is { Length: > 0 } image ? image : Environment.ProcessPath);
     }
 
     /// <summary>The real autostart entry for the running DeskPilot.</summary>

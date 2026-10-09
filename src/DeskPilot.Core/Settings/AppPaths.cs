@@ -24,7 +24,7 @@ public static class AppPaths
         {
             if (_overrideRoot != null) return _overrideRoot;
             if (IsPortable) return Path.Combine(ExeDirectory, "DeskPilotData");
-            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), AppName);
+            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData, Environment.SpecialFolderOption.DoNotVerify), AppName);
         }
     }
 
@@ -34,7 +34,7 @@ public static class AppPaths
         {
             if (_overrideRoot != null) return Path.Combine(_overrideRoot, "local");
             if (IsPortable) return Path.Combine(ExeDirectory, "DeskPilotData", "local");
-            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), AppName);
+            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify), AppName);
         }
     }
 

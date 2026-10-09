@@ -13,7 +13,7 @@ public static class ExecutableLocator
     {
         if (!string.IsNullOrWhiteSpace(configuredPath))
         {
-            var p = Environment.ExpandEnvironmentVariables(configuredPath.Trim().Trim('"'));
+            var p = ExpandUserPath(configuredPath.Trim().Trim('"'));
             if (File.Exists(p)) return Path.GetFullPath(p);
         }
 
@@ -46,6 +46,18 @@ public static class ExecutableLocator
             }
         }
         return null;
+    }
+
+    /// <summary>Expands %VAR% everywhere, and on Linux also a leading ~ and $VAR / ${VAR}.</summary>
+    internal static string ExpandUserPath(string path)
+    {
+        var p = Environment.ExpandEnvironmentVariables(path);
+        if (OperatingSystem.IsWindows()) return p;
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (p == "~") return home;
+        if (p.StartsWith("~/", StringComparison.Ordinal)) p = Path.Combine(home, p[2..]);
+        return System.Text.RegularExpressions.Regex.Replace(p, @"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?",
+            m => Environment.GetEnvironmentVariable(m.Groups[1].Value) ?? m.Value);
     }
 
     private static bool IsUnixExecutable(string path)
