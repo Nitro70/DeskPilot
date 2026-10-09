@@ -1,0 +1,2 @@
+# X11 module tests: xsetroot paints the root window background for the capture test
+x11-xserver-utils
