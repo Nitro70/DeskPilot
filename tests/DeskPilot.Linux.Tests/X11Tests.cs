@@ -459,7 +459,12 @@ public sealed class X11DesktopTests : IDisposable
     {
         foreach (var p in _started)
         {
-            try { if (!p.HasExited) p.Kill(true); } catch (Exception) { }
+            try
+            {
+                if (!p.HasExited) p.Kill(true);
+                p.WaitForExit(3000);
+            }
+            catch (Exception) { }
             p.Dispose();
         }
         try { _input.ReleaseAll(); } catch (Exception) { }
@@ -535,6 +540,83 @@ public sealed class X11DesktopTests : IDisposable
         Assert.Equal(new ScreenRect(0, 0, 1920, 1080), monitors[0].Bounds);
         Assert.Equal(1.0, monitors[0].Scale);
         Assert.False(monitors[0].WorkArea.IsEmpty);
+    }
+
+    [X11Fact]
+    public void Xft_dpi_sets_the_monitor_scale()
+    {
+        var (_, original) = CiEnvironmentTests.Run("xrdb", "-query");
+        var saved = Path.Combine(Path.GetTempPath(), "deskpilot-xrdb-" + Guid.NewGuid().ToString("N"));
+        File.WriteAllText(saved, original);
+        try
+        {
+            var (exit, output) = CiEnvironmentTests.Run("sh", "-c", "echo 'Xft.dpi: 144' | xrdb -nocpp -merge");
+            Assert.True(exit == 0, output);
+            Assert.All(_capture.GetMonitors(), m => Assert.Equal(1.5, m.Scale));
+        }
+        finally
+        {
+            if (string.IsNullOrWhiteSpace(original)) CiEnvironmentTests.Run("xrdb", "-remove");
+            else CiEnvironmentTests.Run("xrdb", "-nocpp", "-load", saved);
+            File.Delete(saved);
+        }
+        if (string.IsNullOrWhiteSpace(original)) Assert.All(_capture.GetMonitors(), m => Assert.Equal(1.0, m.Scale));
+    }
+
+    [X11Fact]
+    public void Randr_monitors_are_listed()
+    {
+        try
+        {
+            var (e1, o1) = CiEnvironmentTests.Run("xrandr", "--setmonitor", "DeskPilotLeft", "960/254x1080/286+0+0", "none");
+            Assert.True(e1 == 0, o1);
+            var (e2, o2) = CiEnvironmentTests.Run("xrandr", "--setmonitor", "DeskPilotRight", "960/254x1080/286+960+0", "none");
+            Assert.True(e2 == 0, o2);
+
+            var monitors = _capture.GetMonitors();
+            foreach (var m in monitors) _out.WriteLine($"monitor {m.Index} {m.DeviceName} {m.Bounds} primary={m.IsPrimary}");
+            Assert.Contains(monitors, m => m.DeviceName == "DeskPilotLeft" && m.Bounds == new ScreenRect(0, 0, 960, 1080));
+            Assert.Contains(monitors, m => m.DeviceName == "DeskPilotRight" && m.Bounds == new ScreenRect(960, 0, 960, 1080));
+            Assert.Single(monitors, m => m.IsPrimary);
+            Assert.Equal(Enumerable.Range(0, monitors.Count), monitors.Select(m => m.Index));
+            Assert.Equal(new ScreenRect(0, 0, 1920, 1080), _capture.GetVirtualScreen());
+        }
+        finally
+        {
+            CiEnvironmentTests.Run("xrandr", "--delmonitor", "DeskPilotLeft");
+            CiEnvironmentTests.Run("xrandr", "--delmonitor", "DeskPilotRight");
+        }
+    }
+
+    [X11Fact]
+    public void A_polkit_agent_window_counts_as_a_privilege_prompt()
+    {
+        var title = UniqueTitle();
+        // The instance name (WM_CLASS) is what identifies the agent here; the process itself is an ordinary xterm.
+        Start("xterm", "-name", "polkit-gnome-authentication-agent-1", "-T", title, "-geometry", "40x5+600+100", "-e", "sleep", "60");
+        var w = WaitForWindow(title);
+        Assert.True(w.IsUacPrompt);
+        Assert.True(_windows.IsUacPromptActive());
+    }
+
+    [X11Fact]
+    public void A_window_of_a_root_process_is_elevated()
+    {
+        var (canSudo, _) = CiEnvironmentTests.Run("sudo", "-n", "true");
+        if (canSudo != 0) Assert.Skip("needs passwordless sudo (CI runners have it)");
+        var title = UniqueTitle();
+        try
+        {
+            Start("sudo", "-n", "--preserve-env=DISPLAY,XAUTHORITY", "timeout", "40", "xterm", "-T", title, "-geometry", "40x5+600+300", "-e", "sleep", "35");
+            var w = WaitForWindow(title);
+            _out.WriteLine($"{w.Title} pid={w.ProcessId} name={w.ProcessName} elevated={w.IsElevated}");
+            Assert.True(w.IsElevated);
+            Assert.False(_windows.IsCurrentProcessElevated);
+        }
+        finally
+        {
+            CiEnvironmentTests.Run("sudo", "-n", "pkill", "-f", title);
+        }
     }
 
     [X11Fact]
