@@ -1150,6 +1150,12 @@ public class LinuxUiSettingsTests
         Assert.Contains("Stop button", vm.HotkeySessionNote);
         Assert.Contains("top-left corner", vm.HotkeySessionNote);
         Assert.Equal("Wayland session (sway)", vm.SessionText);
+        var raised = new List<string?>();
+        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+        vm.FailsafeCorner = false;
+        Assert.Contains(nameof(SettingsViewModel.HotkeySessionNote), raised);
+        Assert.DoesNotContain("top-left corner", vm.HotkeySessionNote);
+        Assert.Contains("failsafe corner", vm.HotkeySessionNote);
 
         Assert.Equal("Wayland session (ubuntu, GNOME)", SettingsViewModel.DescribeSession(WaylandSession with { Desktop = "ubuntu:GNOME" }));
         Assert.Equal("No graphical session detected", SettingsViewModel.DescribeSession(new LinuxSessionInfo(LinuxSessionKind.None, null, null, null, null)));
@@ -1557,9 +1563,20 @@ public class LinuxUiSettingsTests
             var autostart = new LinuxAutostart(dir, () => "/opt/Desk Pilot/deskpilot");
             autostart.Enable();
             var validator = new[] { "/usr/bin/desktop-file-validate", "/bin/desktop-file-validate" }.FirstOrDefault(File.Exists);
-            if (validator == null) return;
+            if (validator == null)
+            {
+                // CI installs desktop-file-utils (ci/apt/settings.txt), so there the check must really run.
+                Assert.True(Environment.GetEnvironmentVariable("DESKPILOT_TEST_SESSION") == null, "desktop-file-validate is not installed");
+                return;
+            }
             var (exit, output) = CiEnvironmentTests.Run(validator, autostart.FilePath);
-            Assert.True(exit == 0, output);
+            Assert.True(exit == 0 && output.Trim().Length == 0, $"exit {exit}: {output}");
+
+            // The validator does catch a broken entry, so the pass above means something.
+            // Type and Name are required keys, so an entry without them must fail.
+            File.WriteAllLines(autostart.FilePath, new[] { "[Desktop Entry]", "Exec=\"/opt/x\" --minimized" });
+            var (badExit, _) = CiEnvironmentTests.Run(validator, autostart.FilePath);
+            Assert.NotEqual(0, badExit);
         }
         finally
         {
@@ -1883,6 +1900,14 @@ public class LinuxUiSettingsTests
             Assert.Equal(claude.ModelOptions[0].Id, claude.Model);
             Assert.False(pickButton.Flyout.IsOpen);
             claude.Model = "sonnet";
+
+            // Escape closes the open list, not the settings window.
+            pickButton.Flyout.ShowAt(pickButton);
+            Pump();
+            window.KeyPress(Key.Escape, RawInputModifiers.None, PhysicalKey.Escape, null);
+            Pump();
+            Assert.False(pickButton.Flyout.IsOpen);
+            Assert.True(window.IsVisible);
 
             // A refresh replaces the list the picked item came from.
             claude.SetModels(new[] { new ModelInfo("opus", "Opus", true, true, true), new ModelInfo("haiku", "Haiku", true, true, true) });

@@ -28,6 +28,7 @@ public partial class SettingsWindow : Window
     private bool _saving;
     private bool _saved;
     private bool _resultSet;
+    private MenuFlyout? _addMenu;
 
     /// <summary>Parameterless constructor for the XAML loader and designer only.</summary>
     public SettingsWindow() => InitializeComponent();
@@ -101,7 +102,10 @@ public partial class SettingsWindow : Window
         if (e.Key == Key.Escape && !e.Handled && e.KeyModifiers == KeyModifiers.None)
         {
             e.Handled = true;
-            CloseWithResult(_saved);
+            // Escape in an open list closes the list, not the whole window.
+            if (ModelPickButton.Flyout is { IsOpen: true } models) models.Hide();
+            else if (_addMenu is { IsOpen: true } menu) menu.Hide();
+            else CloseWithResult(_saved);
         }
     }
 
@@ -124,7 +128,11 @@ public partial class SettingsWindow : Window
 
     // ---- Profiles ----
 
-    private void AddProfile_Click(object? sender, RoutedEventArgs e) => BuildAddMenu().ShowAt(AddProfileButton);
+    private void AddProfile_Click(object? sender, RoutedEventArgs e)
+    {
+        _addMenu = BuildAddMenu();
+        _addMenu.ShowAt(AddProfileButton);
+    }
 
     /// <summary>The Add menu: presets grouped Cloud / Local / Agents, each with its notes as a tooltip.</summary>
     public MenuFlyout BuildAddMenu()

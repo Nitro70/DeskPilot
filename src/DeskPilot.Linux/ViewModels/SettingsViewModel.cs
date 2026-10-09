@@ -227,9 +227,9 @@ public sealed class SettingsViewModel : SettingsBindableBase, IDisposable
     }
 
     /// <summary>Under Wayland no app may grab a global key, so the stop hotkey only works in X11 sessions.</summary>
-    public string HotkeySessionNote => IsWayland
-        ? "This is a Wayland session: Wayland does not let apps register global hotkeys, so the stop hotkey is not available. Stop the agent with the Stop button on the overlay, the tray icon, or by pushing the mouse into the top-left corner of the screen."
-        : "";
+    public string HotkeySessionNote => !IsWayland ? ""
+        : "This is a Wayland session: Wayland does not let apps register global hotkeys, so the stop hotkey is not available. Stop the agent with the Stop button on the overlay " +
+          (FailsafeCorner ? "or the tray icon, or by pushing the mouse into the top-left corner of the screen." : "or the tray icon (or turn on the failsafe corner under Safety).");
 
     // ---- Navigation ----
 
@@ -649,7 +649,10 @@ public sealed class SettingsViewModel : SettingsBindableBase, IDisposable
     public bool FailsafeCorner
     {
         get => Settings.Safety.FailsafeCorner;
-        set => Through(Settings.Safety.FailsafeCorner, value, v => Settings.Safety.FailsafeCorner = v);
+        set
+        {
+            if (Through(Settings.Safety.FailsafeCorner, value, v => Settings.Safety.FailsafeCorner = v)) Raise(nameof(HotkeySessionNote));
+        }
     }
 
     public bool StopOnUserMouseMove
