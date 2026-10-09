@@ -501,6 +501,8 @@ public class CoreOnLinuxProcessStateTests
         var vaultB = Path.Combine(home, "Notes B");
         Directory.CreateDirectory(vaultA);
         Directory.CreateDirectory(vaultB);
+        // .NET reports ApplicationData as "" while ~/.config does not exist (SpecialFolderOption.None verifies it).
+        Directory.CreateDirectory(Path.Combine(home, ".config"));
         try
         {
             using (new EnvScope().Set("HOME", home).Set("XDG_CONFIG_HOME", null))
@@ -531,6 +533,7 @@ public class CoreOnLinuxProcessStateTests
 
             // XDG_CONFIG_HOME moves the native config, as it does for Obsidian itself.
             var xdg = Path.Combine(home, "xdg-config");
+            Directory.CreateDirectory(xdg);
             using (new EnvScope().Set("HOME", home).Set("XDG_CONFIG_HOME", xdg))
                 Assert.Equal(Path.Combine(xdg, "obsidian", "obsidian.json"), ObsidianVaultDetector.ConfigCandidates().First());
         }
