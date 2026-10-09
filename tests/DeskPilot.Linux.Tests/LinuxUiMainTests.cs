@@ -1733,8 +1733,11 @@ public class LinuxUiMainTests
             Check(!string.IsNullOrEmpty(mainId), "main window is mapped");
             await Task.Delay(700);
             Check(await Active() == mainId, "main window has the keyboard focus");
-            var wa = main.Screens.Primary!.WorkingArea;
-            Ok($"primary working area {wa}");
+            var screen = main.Screens.Primary ?? main.Screens.All.FirstOrDefault();
+            Check(screen != null, $"a screen is known ({main.Screens.All.Count} screens, primary {(main.Screens.Primary == null ? "not set" : "set")})");
+            if (screen == null) return;
+            var wa = screen.WorkingArea;
+            Ok($"working area {wa}, scaling {screen.Scaling}");
 
             var sent = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
             var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
