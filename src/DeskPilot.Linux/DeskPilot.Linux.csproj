@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- DeskPilot for Linux: an Avalonia UI over the same core as the Windows app. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>deskpilot</AssemblyName>
+    <RootNamespace>DeskPilot.Linux</RootNamespace>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <ApplicationIcon Condition="Exists('Assets\DeskPilot.ico')">Assets\DeskPilot.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <!-- `dotnet publish -c Release -r linux-x64` (or linux-arm64) gives one self-contained executable in bin/publish-linux-<arch>. -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' != ''">
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>false</EnableCompressionInSingleFile>
+    <PublishDir>$(MSBuildThisFileDirectory)..\..\bin\publish-$(RuntimeIdentifier)\</PublishDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <AvaloniaResource Include="Assets\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="12.1.3" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.3" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.3" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.3" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="DeskPilot.Linux.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DeskPilot.Core\DeskPilot.Core.csproj" />
+    <ProjectReference Include="..\DeskPilot.Desktop.Linux\DeskPilot.Desktop.Linux.csproj" />
+  </ItemGroup>
+
+</Project>

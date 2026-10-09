@@ -1,0 +1,74 @@
+name: linux
+
+on:
+  push:
+    branches: [ main, 'linux-ci/**' ]
+    tags: [ 'v*' ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: test (${{ matrix.session }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        session: [ x11, wayland ]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install desktop test environment
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            xvfb openbox xterm x11-utils x11-apps xdotool xclip xsel \
+            dbus-x11 dbus-user-session at-spi2-core zenity fonts-dejavu-core \
+            sway grim wtype wlrctl wl-clipboard libxtst6 libxrandr2 libxfixes3 libxi6
+
+      - name: Build
+        run: dotnet build tests/DeskPilot.Linux.Tests -c Release
+
+      - name: Test (${{ matrix.session }})
+        run: bash ci/run-linux-tests.sh ${{ matrix.session }}
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-test-results-${{ matrix.session }}
+          path: |
+            **/TestResults/**
+            ci-logs/**
+          if-no-files-found: ignore
+
+  package:
+    needs: test
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        rid: [ linux-x64, linux-arm64 ]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publish and package
+        run: bash packaging/linux/build-package.sh ${{ matrix.rid }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DeskPilot-${{ matrix.rid }}
+          path: artifacts/*
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
