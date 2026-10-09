@@ -732,31 +732,39 @@ public class PackagingScriptTests
             {
                 var env = new Dictionary<string, string?>
                 {
-                    ["PATH"] = path, ["HOME"] = dir, ["DISPLAY"] = null, ["WAYLAND_DISPLAY"] = null,
+                    ["PATH"] = path, ["HOME"] = dir, ["XDG_DATA_HOME"] = null, ["DISPLAY"] = null, ["WAYLAND_DISPLAY"] = null,
                     ["XDG_SESSION_TYPE"] = null, ["XDG_CURRENT_DESKTOP"] = null, ["DESKPILOT_SESSION"] = null,
+                    ["SWAYSOCK"] = null, ["HYPRLAND_INSTANCE_SIGNATURE"] = null, ["KDE_FULL_SESSION"] = null,
+                    ["GNOME_SETUP_DISPLAY"] = null, ["GNOME_SHELL_SESSION_MODE"] = null,
                 };
                 foreach (var (k, v) in vars) env[k] = v;
                 return Run("/bin/sh", env, Packaging("install.sh"), "--check");
             }
+            var portalInstalled = File.Exists("/usr/share/dbus-1/services/org.freedesktop.portal.Desktop.service");
 
             var (exit, sway) = Check(("XDG_SESSION_TYPE", "wayland"), ("WAYLAND_DISPLAY", "wayland-9"), ("XDG_CURRENT_DESKTOP", "sway"));
             Assert.True(exit == 0, sway);
             Assert.Contains("Desktop session: Wayland (sway)", sway);
-            Assert.Contains("Screenshots need grim.", sway);
-            Assert.Contains("Typing and key presses need wtype.", sway);
-            Assert.Contains("swaymsg", sway);
-            Assert.Contains("wl-clipboard", sway);
+            Assert.Contains("Screenshots on sway need grim.", sway);
+            Assert.Contains("Typing and key presses on sway need wtype.", sway);
+            Assert.Contains("needs swaymsg", sway);
+            Assert.Contains("Clipboard access on Wayland needs wl-clipboard.", sway);
             Assert.Contains("Xwayland", sway);
             Assert.Contains("Claude Code (the default model provider) was not found", sway);
             var install = sway.Split('\n').Select(l => l.Trim()).FirstOrDefault(l => l.StartsWith("sudo ", StringComparison.Ordinal));
             if (install != null)
             {
-                foreach (var pkg in new[] { "grim", "wtype", "sway", "wl-clipboard" }) Assert.Contains(" " + pkg, install);
+                foreach (var pkg in new[] { "grim", "wtype", "wl-clipboard" }) Assert.Contains(" " + pkg, install);
             }
+
+            // sway found through the variable it sets for its session; SWAYSOCK also stands in for swaymsg.
+            var (_, swaySock) = Check(("WAYLAND_DISPLAY", "wayland-9"), ("SWAYSOCK", "/run/user/1000/sway-ipc.sock"));
+            Assert.Contains("Screenshots on sway need grim.", swaySock);
+            Assert.DoesNotContain("needs swaymsg", swaySock);
 
             var (_, x11) = Check(("XDG_SESSION_TYPE", "x11"), ("DISPLAY", ":9"), ("XDG_CURRENT_DESKTOP", "XFCE"));
             Assert.Contains("Desktop session: X11 (XFCE)", x11);
-            Assert.Contains("xclip", x11);
+            Assert.Contains("Clipboard access on X11 needs xclip or xsel.", x11);
             Assert.DoesNotContain("grim", x11);
 
             var (_, forced) = Check(("XDG_SESSION_TYPE", "wayland"), ("WAYLAND_DISPLAY", "wayland-0"), ("DISPLAY", ":0"), ("DESKPILOT_SESSION", "x11"));
@@ -765,11 +773,18 @@ public class PackagingScriptTests
             var (_, gnome) = Check(("XDG_SESSION_TYPE", "wayland"), ("WAYLAND_DISPLAY", "wayland-0"), ("DISPLAY", ":0"), ("XDG_CURRENT_DESKTOP", "ubuntu:GNOME"));
             Assert.Contains("Desktop session: Wayland (ubuntu:GNOME)", gnome);
             Assert.Contains("permission prompt", gnome);
+            Assert.Contains("Window Calls", gnome);
             Assert.DoesNotContain("Xwayland", gnome);
-            if (!File.Exists("/usr/share/dbus-1/services/org.freedesktop.portal.Desktop.service"))
-                Assert.Contains("xdg-desktop-portal", gnome);
-            if (!File.Exists("/usr/share/xdg-desktop-portal/portals/gnome.portal"))
-                Assert.Contains("xdg-desktop-portal-gnome", gnome);
+            Assert.DoesNotContain("grim", gnome);
+            if (!portalInstalled)
+            {
+                Assert.Contains("on GNOME go through xdg-desktop-portal", gnome);
+                Assert.Contains(" xdg-desktop-portal-gnome", gnome);
+            }
+
+            var (_, kde) = Check(("XDG_SESSION_TYPE", "wayland"), ("WAYLAND_DISPLAY", "wayland-0"), ("DISPLAY", ":0"), ("XDG_CURRENT_DESKTOP", "KDE"));
+            Assert.Contains("kdotool", kde);
+            if (!portalInstalled) Assert.Contains(" xdg-desktop-portal-kde", kde);
 
             var (_, none) = Check();
             Assert.Contains("Desktop session: none detected", none);

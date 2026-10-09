@@ -76,22 +76,51 @@ have_lib() {
   return 1
 }
 
-portal_dir=/usr/share/xdg-desktop-portal/portals
-
-# True when an installed xdg-desktop-portal backend (gnome, kde, cosmic...) implements the interface.
-portal_has() {
-  _backend=$1 _iface=$2
-  [ -f "$portal_dir/$_backend.portal" ] && grep -q "org.freedesktop.impl.portal.$_iface" "$portal_dir/$_backend.portal"
+# True when a session-bus name is owned now or can be activated (its D-Bus service file is installed).
+have_bus_name() {
+  for _d in "$data_dir/dbus-1/services" /usr/local/share/dbus-1/services /usr/share/dbus-1/services; do
+    [ -f "$_d/$1.service" ] && return 0
+  done
+  if have busctl && busctl --user --no-pager list 2>/dev/null | awk -v n="$1" '$1 == n { found = 1 } END { exit !found }'; then
+    return 0
+  fi
+  if have dbus-send && dbus-send --session --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus \
+      org.freedesktop.DBus.ListNames 2>/dev/null | grep -qF "\"$1\""; then
+    return 0
+  fi
+  return 1
 }
 
-have_portal_service() { [ -f /usr/share/dbus-1/services/org.freedesktop.portal.Desktop.service ]; }
+# The Wayland desktop, like WaylandContext.DetectDesktop: XDG_CURRENT_DESKTOP first, then the variables each
+# compositor sets for its session.
+wayland_desktop() {
+  if desktop_is Hyprland; then echo hyprland
+  elif desktop_is sway; then echo sway
+  elif desktop_is river wayfire labwc niri; then echo wlroots
+  elif desktop_is KDE plasma; then echo kde
+  elif desktop_is GNOME Unity ubuntu; then echo gnome
+  elif desktop_is COSMIC; then echo cosmic
+  elif [ -n "${HYPRLAND_INSTANCE_SIGNATURE-}" ]; then echo hyprland
+  elif [ -n "${SWAYSOCK-}" ]; then echo sway
+  elif [ -n "${KDE_FULL_SESSION-}" ]; then echo kde
+  elif [ -n "${GNOME_SETUP_DISPLAY-}" ] || [ -n "${GNOME_SHELL_SESSION_MODE-}" ]; then echo gnome
+  else echo unknown
+  fi
+}
 
-have_atspi() {
-  [ -f /usr/share/dbus-1/services/org.a11y.Bus.service ] && return 0
-  for _f in /usr/libexec/at-spi-bus-launcher /usr/lib/at-spi2-core/at-spi-bus-launcher /usr/lib/at-spi-bus-launcher /usr/libexec/at-spi2/at-spi-bus-launcher; do
-    [ -x "$_f" ] && return 0
-  done
-  return 1
+# yes, no, or unknown when the compositor's globals cannot be listed (wayland-info is not installed).
+wayland_has_global() {
+  have wayland-info || { echo unknown; return; }
+  _globals=$(wayland-info 2>/dev/null) || { echo unknown; return; }
+  [ -n "$_globals" ] || { echo unknown; return; }
+  case $_globals in *"$1"*) echo yes ;; *) echo no ;; esac
+}
+
+# True when the GNOME Shell extension "Window Calls" answers on the session bus.
+have_gnome_window_calls() {
+  have gdbus || return 1
+  gdbus introspect --session --dest org.gnome.Shell --object-path /org/gnome/Shell/Extensions/Windows 2>/dev/null |
+    grep -qF org.gnome.Shell.Extensions.Windows
 }
 
 distro_family() {
@@ -111,11 +140,8 @@ distro_family() {
 # Package name of a helper for a distribution family.
 pkg() {
   case "$1:$2" in
-    debian:libx11) echo libx11-6 ;;      fedora:libx11) echo libX11 ;;      arch:libx11) echo libx11 ;;      suse:libx11) echo libX11-6 ;;
     debian:libxtst) echo libxtst6 ;;     fedora:libxtst) echo libXtst ;;    arch:libxtst) echo libxtst ;;    suse:libxtst) echo libXtst6 ;;
     debian:libxrandr) echo libxrandr2 ;; fedora:libxrandr) echo libXrandr ;; arch:libxrandr) echo libxrandr ;; suse:libxrandr) echo libXrandr2 ;;
-    debian:libxfixes) echo libxfixes3 ;; fedora:libxfixes) echo libXfixes ;; arch:libxfixes) echo libxfixes ;; suse:libxfixes) echo libXfixes3 ;;
-    debian:libxi) echo libxi6 ;;         fedora:libxi) echo libXi ;;        arch:libxi) echo libxi ;;        suse:libxi) echo libXi6 ;;
     *:portal) echo xdg-desktop-portal ;;
     *:portal-gnome) echo xdg-desktop-portal-gnome ;;
     *:portal-kde) echo xdg-desktop-portal-kde ;;
@@ -144,50 +170,53 @@ hint() {
 }
 
 check_x11() {
-  _keys="" _names=""
-  for _l in libx11:libX11.so.6 libxtst:libXtst.so.6 libxrandr:libXrandr.so.2 libxfixes:libXfixes.so.3 libxi:libXi.so.6; do
-    if ! have_lib "${_l#*:}"; then
-      _keys="$_keys ${_l%%:*}"
-      _names="$_names ${_l#*:}"
-    fi
-  done
-  # shellcheck disable=SC2086
-  [ -z "$_keys" ] || need "Screenshots, mouse and keyboard on X11 need the X libraries$_names." $_keys
-  if ! have xclip && ! have xsel; then need "The clipboard tools need xclip (or xsel)." xclip; fi
+  have_lib libXtst.so.6 || have_lib libXtst.so || need "Mouse and keyboard control on X11 needs libXtst." libxtst
+  have_lib libXrandr.so.2 || have_lib libXrandr.so || need "Detecting monitors on X11 needs libXrandr." libxrandr
+  if ! have xclip && ! have xsel; then need "Clipboard access on X11 needs xclip or xsel." xclip; fi
 }
 
 check_wayland() {
-  if desktop_is sway Hyprland river wayfire labwc niri; then
-    have grim || need "Screenshots need grim." grim
-    have wtype || need "Typing and key presses need wtype." wtype
-    if desktop_is sway; then
-      have swaymsg || need "Windows and the mouse on sway need swaymsg (part of sway)." sway
-    elif desktop_is Hyprland; then
-      have hyprctl || need "Windows and the mouse on Hyprland need hyprctl (part of Hyprland)." hyprland
-    elif ! have wlrctl && ! have ydotool && ! have dotool; then
-      need "The mouse needs wlrctl (or ydotool or dotool)." wlrctl
-    fi
-  else
-    if desktop_is GNOME Unity ubuntu; then _backend=gnome
-    elif desktop_is KDE plasma; then _backend=kde
-    elif desktop_is COSMIC; then _backend=cosmic
-    else _backend=""
-    fi
-    have_portal_service || need "Screenshots and input on this desktop go through xdg-desktop-portal, which is not installed." portal
-    if [ -n "$_backend" ]; then
-      portal_has "$_backend" Screenshot || need "Screenshots need the $_backend portal backend (xdg-desktop-portal-$_backend)." "portal-$_backend"
-      if ! portal_has "$_backend" RemoteDesktop && ! have ydotool && ! have dotool; then
-        need "Mouse and keyboard need the remote-desktop portal of xdg-desktop-portal-$_backend, or ydotool (or dotool)." ydotool
+  _wd=$(wayland_desktop)
+  case $_wd in
+    sway) _name=sway ;;
+    hyprland) _name=Hyprland ;;
+    gnome) _name=GNOME ;;
+    kde) _name="KDE Plasma" ;;
+    cosmic) _name=COSMIC ;;
+    *) _name=$(trim "${XDG_CURRENT_DESKTOP-}"); [ -n "$_name" ] || _name="this Wayland desktop" ;;
+  esac
+
+  case $_wd in
+    sway|hyprland|wlroots)
+      have grim || need "Screenshots on $_name need grim." grim
+      have wtype || need "Typing and key presses on $_name need wtype." wtype
+      if [ "$_wd" = sway ] && ! have swaymsg && [ -z "${SWAYSOCK-}" ]; then
+        need "Listing and focusing windows on sway needs swaymsg (part of the sway package) or the SWAYSOCK variable sway sets for its session."
       fi
-    elif ! have ydotool && ! have dotool; then
-      need "Mouse and keyboard on this compositor need ydotool (or dotool)." ydotool
-    fi
-    hint "The first screenshot shows a permission prompt from the desktop, and the first mouse or keyboard action asks once to allow remote control."
-  fi
-  if ! have wl-copy || ! have wl-paste; then need "The clipboard tools need wl-clipboard (wl-copy, wl-paste)." wl-clipboard; fi
-  if have ydotool || have dotool; then
-    hint "ydotool needs its daemon (ydotoold) running and dotool needs access to /dev/uinput (usually the input group)."
-  fi
+      if [ "$_wd" = hyprland ] && ! have hyprctl; then
+        need "Listing and focusing windows on Hyprland needs hyprctl, which comes with Hyprland. Make sure it is on PATH."
+      fi
+      if [ "$(wayland_has_global zwlr_virtual_pointer_manager_v1)" = no ] && ! have ydotool && ! have dotool; then
+        need "$_name does not offer the virtual pointer protocol, so mouse control needs ydotool with ydotoold running." ydotool
+      fi
+      ;;
+    *)
+      if ! have_bus_name org.freedesktop.portal.Desktop; then
+        case $_wd in kde) _backend=portal-kde ;; cosmic) _backend=portal-cosmic ;; *) _backend=portal-gnome ;; esac
+        need "Screenshots, mouse and keyboard on $_name go through xdg-desktop-portal, which is not running. Install it with your desktop's backend. For mouse and keyboard, ydotool with ydotoold running also works." portal "$_backend"
+      fi
+      if [ "$_wd" = kde ] && ! have kdotool; then
+        hint "Optional: kdotool lets DeskPilot list and focus windows on KDE Plasma (cargo install kdotool, or the kdotool package from the AUR on Arch). Without it DeskPilot works from screenshots only."
+      fi
+      if [ "$_wd" = gnome ] && ! have_gnome_window_calls; then
+        hint "Optional: the GNOME Shell extension \"Window Calls\" (extensions.gnome.org) lets DeskPilot list and focus windows on GNOME. Without it DeskPilot works from screenshots only."
+      fi
+      hint "The first screenshot shows a permission prompt from the desktop, and the first mouse or keyboard action asks once to allow remote control."
+      ;;
+  esac
+
+  if ! have wl-copy || ! have wl-paste; then need "Clipboard access on Wayland needs wl-clipboard." wl-clipboard; fi
+  # Not a DescribeMissingTools check: the app itself needs X11, so this only matters before it first runs.
   if [ -z "$(trim "${DISPLAY-}")" ]; then
     hint "DeskPilot's own window uses X11 through Xwayland, and DISPLAY is not set in this session: enable Xwayland in your compositor."
   fi
@@ -211,7 +240,9 @@ report_session() {
       echo "terminal inside your desktop session to see which helper packages it needs."
       ;;
   esac
-  [ "$_kind" = none ] || have_atspi || need "Reading buttons and fields (ui_elements) needs the AT-SPI accessibility bus." atspi
+  if [ "$_kind" != none ] && ! have_bus_name org.a11y.Bus; then
+    need "Reading buttons and fields of windows (ui_elements) needs the accessibility bus from at-spi2-core, which is not running. Install it and log in again." atspi
+  fi
 
   if [ -n "$missing_notes" ]; then
     echo "Missing helper tools:$missing_notes"

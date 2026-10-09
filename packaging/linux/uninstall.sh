@@ -60,10 +60,13 @@ else
 fi
 
 kept=""
-[ -d "$config_dir/DeskPilot" ] && kept="$kept
-  $config_dir/DeskPilot (settings, API keys)"
-[ -d "$data_dir/DeskPilot" ] && kept="$kept
-  $data_dir/DeskPilot (logs)"
+if [ -d "$config_dir/DeskPilot" ]; then kept="$kept
+  $config_dir/DeskPilot (settings, API keys)"; fi
+if [ -d "$data_dir/DeskPilot" ]; then kept="$kept
+  $data_dir/DeskPilot (logs)"; fi
+# DeskPilot's own "Start when I log in" setting writes this entry; the app owns it, so it is only reported.
+if [ -f "$config_dir/autostart/deskpilot.desktop" ]; then kept="$kept
+  $config_dir/autostart/deskpilot.desktop (the \"Start when I log in\" entry)"; fi
 if [ -n "$kept" ]; then
-  echo "Kept your DeskPilot data; delete these folders yourself if you no longer want them:$kept"
+  echo "Kept your DeskPilot data; delete these yourself if you no longer want them:$kept"
 fi

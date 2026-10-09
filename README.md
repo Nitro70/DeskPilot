@@ -94,8 +94,8 @@ Download one of these from the Releases page:
 | Session | Support | How DeskPilot sees the screen and acts |
 |---|---|---|
 | X11, any desktop | Recommended, fully supported | Directly through X11 (Xlib and XTest), no prompts, global stop hotkey |
-| Wayland: sway, Hyprland and other wlroots compositors | Supported | `grim` for screenshots, `wtype` for the keyboard, `swaymsg` / `hyprctl` for windows and the mouse |
-| Wayland: GNOME, KDE Plasma, COSMIC | Supported, with prompts | `xdg-desktop-portal`: the desktop asks your permission for screenshots, and once to allow remote control of the mouse and keyboard. `ydotool` or `dotool` also work for input |
+| Wayland: sway, Hyprland and other wlroots compositors | Supported | `grim` for screenshots, `wtype` for the keyboard, the compositor's virtual pointer for the mouse, `swaymsg` / `hyprctl` for windows |
+| Wayland: GNOME, KDE Plasma, COSMIC | Supported, with prompts | `xdg-desktop-portal`: the desktop asks your permission for screenshots, and once to allow remote control of the mouse and keyboard. `ydotool` or `dotool` also work for input. Listing and focusing windows needs an extra: the "Window Calls" GNOME Shell extension, or `kdotool` on KDE Plasma; without it DeskPilot works from screenshots |
 
 Wayland deliberately makes it hard for one program to watch and control others, so that route needs
 helpers and approvals, and it has no global hotkeys. If your desktop still offers an X11 session at the
@@ -123,9 +123,9 @@ sudo pacman -S --needed grim wtype wl-clipboard                     # sway, Hypr
 sudo pacman -S --needed xdg-desktop-portal-gnome wl-clipboard       # GNOME on Wayland (KDE: xdg-desktop-portal-kde)
 ```
 
-`ydotool` is the input fallback for Wayland desktops without the remote-desktop portal (COSMIC, for
-example); it needs its daemon `ydotoold` running. The X11 libraries themselves come with every X11
-desktop.
+`ydotool` is the input fallback for Wayland desktops without the remote-desktop portal; it needs its
+daemon `ydotoold` running. The X11 libraries DeskPilot uses (libXtst, libXrandr) come with practically
+every X11 desktop.
 
 ### Claude Code on Linux
 
@@ -138,7 +138,8 @@ to the running DeskPilot window over a private Unix socket.
 ### Stopping the agent on Linux
 
 - the **Stop** button in the main window and in the small overlay that shows the current step;
-- the **tray icon**'s Stop (GNOME shows tray icons only with the AppIndicator extension);
+- the **tray icon**'s Stop (GNOME shows tray icons only with the AppIndicator extension, which Ubuntu
+  enables by default);
 - the **stop hotkey** (Ctrl+Alt+X by default) on X11 only, since Wayland does not let apps grab global keys;
 - the **failsafe corner**: move the mouse into the top-left corner of the main screen (on Wayland only
   where DeskPilot can read the pointer position).

@@ -329,11 +329,14 @@ Wayland gives ordinary clients no way to read the screen or inject input, so the
 compositor:
 
 * **wlroots compositors** (sway, Hyprland, river, wayfire, labwc, niri): `grim` takes screenshots, `wtype`
-  types and presses keys, and the compositor's IPC (`swaymsg`, `hyprctl`) lists and focuses windows and
-  drives the pointer; other wlroots compositors use `wlrctl`, `ydotool` or `dotool` for the pointer.
+  types and presses keys, the pointer goes through the compositor's virtual pointer protocol (`ydotool`
+  or `dotool` where a compositor lacks it), and the compositor's IPC (`swaymsg` or the sway socket,
+  `hyprctl`) lists and focuses windows.
 * **GNOME, KDE Plasma, COSMIC**: xdg-desktop-portal over D-Bus. The Screenshot portal shows the desktop's
-  permission prompt; the RemoteDesktop portal asks once for mouse and keyboard control. Where that portal
-  is missing (COSMIC, for example), `ydotool` or `dotool` inject input through `/dev/uinput`.
+  permission prompt; the RemoteDesktop portal asks once for mouse and keyboard control. `ydotool` or
+  `dotool` (through `/dev/uinput`) are the alternative for input. These desktops offer no general window
+  list, so listing and focusing windows uses an optional extra: the "Window Calls" GNOME Shell extension
+  over D-Bus, or `kdotool` on KDE Plasma; without it the model works from screenshots.
 * `wl-clipboard` (`wl-copy`, `wl-paste`) is the clipboard everywhere.
 
 There is no global hotkey on Wayland; the Stop buttons, the tray icon and the failsafe corner remain (the
