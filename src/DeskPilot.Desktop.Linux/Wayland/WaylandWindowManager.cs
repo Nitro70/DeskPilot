@@ -221,7 +221,12 @@ public sealed class WaylandWindowManager : IWindowManager
                 _gnomeUnavailable = true;
             return false;
         }
-        catch (Exception ex) when (ex is InvalidOperationException or TimeoutException or IOException or DBusExceptionBase)
+        catch (TimeoutException)
+        {
+            // GNOME Shell busy: skip this query, ask again next time.
+            return false;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException or DBusExceptionBase)
         {
             _gnomeUnavailable = true;
             return false;

@@ -505,6 +505,50 @@ public class WaylandInputLogicTests
     }
 
     [Fact]
+    public void A_route_that_never_worked_is_replaced_by_the_next()
+    {
+        var socket = Path.GetTempFileName();
+        try
+        {
+            bool ydotoolPointerWorks = true;
+            var runner = new FakeRunner("swaymsg", "ydotool", "dotool");
+            runner.Handlers["swaymsg"] = args => args.Contains("get_outputs")
+                ? new CommandResult(0, Encoding.UTF8.GetBytes("""[{"name":"A","active":true,"scale":1.0,"rect":{"x":0,"y":0,"width":800,"height":600}}]"""), "", false)
+                : new CommandResult(2, Encoding.UTF8.GetBytes("""[{"success":false,"error":"Seat has no pointer"}]"""), "", false);
+            runner.Handlers["ydotool"] = args => args[0] == "mousemove" && ydotoolPointerWorks
+                ? new CommandResult(0, Array.Empty<byte>(), "", false)
+                : new CommandResult(1, Array.Empty<byte>(), "failed to connect socket", false);
+            var ctx = WaylandSamples.Context(runner, "sway", ("YDOTOOL_SOCKET", socket));
+            var sim = new WaylandInputSimulator(ctx);
+
+            sim.MoveMouse(10, 10);
+            Assert.Equal(InputRoutes.Ydotool, sim.PointerRoute);
+            sim.TypeText("hi", 0);
+            Assert.Equal(InputRoutes.Dotool, sim.KeyboardRoute);
+            Assert.Equal("type hi\n", Encoding.UTF8.GetString(runner.Calls.Last().Stdin!));
+
+            // Once a route has worked, its later errors are reported instead of switching routes.
+            ydotoolPointerWorks = false;
+            var ex = Assert.Throws<InvalidOperationException>(() => sim.MoveMouse(20, 20));
+            Assert.Contains("ydotool", ex.Message);
+            Assert.Equal(InputRoutes.Ydotool, sim.PointerRoute);
+        }
+        finally
+        {
+            File.Delete(socket);
+        }
+    }
+
+    [Fact]
+    public void No_working_route_explains_what_to_install()
+    {
+        var runner = new FakeRunner().Returns("swaymsg", """[{"name":"A","active":true,"scale":1.0,"rect":{"x":0,"y":0,"width":800,"height":600}}]""");
+        var sim = new WaylandInputSimulator(WaylandSamples.Context(runner, "sway"));
+        var ex = Assert.Throws<InvalidOperationException>(() => sim.TypeText("x", 0));
+        Assert.Contains("wtype", ex.Message);
+    }
+
+    [Fact]
     public void Smooth_move_ends_on_the_target()
     {
         var runner = new FakeRunner().Returns("swaymsg", """[{"name":"A","active":true,"scale":1.0,"rect":{"x":0,"y":0,"width":1920,"height":1080}}]""");
@@ -959,17 +1003,21 @@ internal sealed class FakePortalService : IPathMethodHandler, IDisposable
         _log = root?._log ?? new List<string>();
     }
 
-    public static async Task<FakePortalService> StartAsync(string address)
+    /// <summary>
+    /// Connects on a thread-pool thread: the connection must not capture the test's synchronization context, or the
+    /// product code blocking the test thread (it is synchronous) would starve the fake of the thread it answers on.
+    /// </summary>
+    public static Task<FakePortalService> StartAsync(string address) => Task.Run(async () =>
     {
         var c = new DBusConnection(address);
-        await c.ConnectAsync();
+        await c.ConnectAsync().ConfigureAwait(false);
         var portal = new FakePortalService(c, PortalNames.ObjectPath, null);
         c.AddMethodHandler(portal);
         c.AddMethodHandler(new FakePortalService(c, WindowsPath, portal));
-        await c.RequestNameAsync(PortalNames.Service, RequestNameOptions.Default);
-        await c.RequestNameAsync("org.gnome.Shell", RequestNameOptions.Default);
+        await c.RequestNameAsync(PortalNames.Service, RequestNameOptions.Default).ConfigureAwait(false);
+        await c.RequestNameAsync("org.gnome.Shell", RequestNameOptions.Default).ConfigureAwait(false);
         return portal;
-    }
+    });
 
     private FakePortalService Root => _root ?? this;
 
@@ -1208,9 +1256,26 @@ public class WaylandPortalBusTests
         using var service = await FakePortalService.StartAsync(bus.Address);
         try { File.Delete(PortalRemoteDesktop.DefaultTokenFile); } catch (IOException) { }
 
+        // Awaited directly first, then through the synchronous simulator.
+        using (var direct = new PortalBus(bus.Address))
+        {
+            var rd = new PortalRemoteDesktop(direct, Path.Combine(Path.GetTempPath(), $"dp-rd-{Guid.NewGuid():N}"));
+            await rd.EnsureStartedAsync(TestContext.Current.CancellationToken);
+            await rd.MoveAsync(10, 20, TestContext.Current.CancellationToken);
+            Assert.True(service.Log.Contains("Motion 51 10 20"), string.Join(" | ", service.Log));
+        }
+        service.Log.Clear();
+
         var ctx = GnomeContext(bus);
         var sim = new WaylandInputSimulator(ctx, InputRoutes.Portal, InputRoutes.Portal);
-        sim.MoveMouse(100, 200);
+        try
+        {
+            sim.MoveMouse(100, 200);
+        }
+        catch (InvalidOperationException first)
+        {
+            Assert.Fail(first.Message + " / fake portal saw: " + string.Join(" | ", service.Log));
+        }
         sim.Click(MouseButton.Left, 1);
         sim.Scroll(0, 2);
         sim.TypeText("é€\n", 0);
@@ -1253,6 +1318,12 @@ public class WaylandPortalBusTests
     {
         using var bus = PrivateBus.Start();
         using var service = await FakePortalService.StartAsync(bus.Address);
+        using (var direct = new PortalBus(bus.Address))
+        {
+            var json = await direct.CallServiceAsync(WaylandWindowManager.GnomeService, WaylandWindowManager.GnomePath, WaylandWindowManager.GnomeInterface,
+                "List", null, true, TestContext.Current.CancellationToken);
+            Assert.Equal(3, WaylandWindowParsers.ParseGnomeList(json!).Count);
+        }
         var wm = new WaylandWindowManager(GnomeContext(bus));
         var windows = wm.ListWindows();
         Assert.Equal(new[] { "Front window", "Back window" }, windows.Select(w => w.Title));

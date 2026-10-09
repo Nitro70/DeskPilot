@@ -6,7 +6,9 @@ namespace DeskPilot.Desktop.Linux.Wayland;
 /// Mouse and keyboard on Wayland, which has no universal input-injection API. The route is chosen per compositor at
 /// first use: wlroots (sway, Hyprland, river...) get DeskPilot's own virtual pointer plus wtype; sway and Hyprland can
 /// fall back to their IPC; GNOME, KDE and COSMIC use the xdg-desktop-portal RemoteDesktop session (approved once);
-/// ydotool and dotool are the last resort anywhere. Coordinates are DeskPilot's physical pixels (see <see cref="WaylandLayout"/>).
+/// ydotool and dotool are the last resort anywhere. A route that fails before it ever worked (for example a protocol
+/// the compositor advertises but refuses) is dropped for the next one. Coordinates are DeskPilot's physical pixels
+/// (see <see cref="WaylandLayout"/>).
 /// </summary>
 public sealed class WaylandInputSimulator : IInputSimulator
 {
@@ -20,8 +22,14 @@ public sealed class WaylandInputSimulator : IInputSimulator
     private readonly object _gate = new();
     private readonly HashSet<MouseButton> _pressedButtons = new();
     private readonly List<string> _pressedKeys = new();
+    private readonly HashSet<string> _failedPointerRoutes = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _failedKeyboardRoutes = new(StringComparer.Ordinal);
+    private readonly List<string> _pointerErrors = new();
+    private readonly List<string> _keyboardErrors = new();
     private IPointerBackend? _pointer;
     private IKeyboardBackend? _keyboard;
+    private bool _pointerWorked;
+    private bool _keyboardWorked;
     private PortalRemoteDesktop? _remoteDesktop;
 
     public WaylandInputSimulator(LinuxSessionInfo session) : this(new WaylandContext(session)) { }
@@ -38,6 +46,7 @@ public sealed class WaylandInputSimulator : IInputSimulator
     {
         _pointer = pointer;
         _keyboard = keyboard;
+        _pointerWorked = _keyboardWorked = true;
     }
 
     /// <summary>The routes in use (after first use), e.g. "virtual-pointer" / "wtype".</summary>
@@ -52,7 +61,7 @@ public sealed class WaylandInputSimulator : IInputSimulator
         {
             var layout = Layout();
             var (lx, ly) = layout.ToLogical(x, y);
-            Pointer().Move(lx, ly, layout);
+            UsePointer(p => p.Move(lx, ly, layout));
             WaylandCursorTracker.Set(new ScreenPoint(x, y));
         }
     }
@@ -84,7 +93,7 @@ public sealed class WaylandInputSimulator : IInputSimulator
     {
         lock (_gate)
         {
-            Pointer().Button(button, true);
+            UsePointer(p => p.Button(button, true));
             _pressedButtons.Add(button);
         }
     }
@@ -93,7 +102,7 @@ public sealed class WaylandInputSimulator : IInputSimulator
     {
         lock (_gate)
         {
-            Pointer().Button(button, false);
+            UsePointer(p => p.Button(button, false));
             _pressedButtons.Remove(button);
         }
     }
@@ -103,23 +112,25 @@ public sealed class WaylandInputSimulator : IInputSimulator
         clicks = Math.Clamp(clicks, 1, 3);
         lock (_gate)
         {
-            var p = Pointer();
-            for (int i = 0; i < clicks; i++)
+            UsePointer(p =>
             {
-                p.Button(button, true);
-                _pressedButtons.Add(button);
-                Thread.Sleep(ClickHoldMs);
-                p.Button(button, false);
-                _pressedButtons.Remove(button);
-                if (i < clicks - 1) Thread.Sleep(ClickGapMs);
-            }
+                for (int i = 0; i < clicks; i++)
+                {
+                    p.Button(button, true);
+                    _pressedButtons.Add(button);
+                    Thread.Sleep(ClickHoldMs);
+                    p.Button(button, false);
+                    _pressedButtons.Remove(button);
+                    if (i < clicks - 1) Thread.Sleep(ClickGapMs);
+                }
+            });
         }
     }
 
     public void Scroll(int dx, int dy)
     {
         if (dx == 0 && dy == 0) return;
-        lock (_gate) Pointer().Scroll(dx, dy);
+        lock (_gate) UsePointer(p => p.Scroll(dx, dy));
     }
 
     public ScreenPoint GetCursorPosition()
@@ -137,14 +148,14 @@ public sealed class WaylandInputSimulator : IInputSimulator
     public void TypeText(string text, int delayMsPerChar)
     {
         if (string.IsNullOrEmpty(text)) return;
-        lock (_gate) Keyboard().Type(text, Math.Max(0, delayMsPerChar));
+        lock (_gate) UseKeyboard(k => k.Type(text, Math.Max(0, delayMsPerChar)));
     }
 
     public void PressCombo(KeyCombo combo)
     {
         ArgumentNullException.ThrowIfNull(combo);
         if (combo.Key != null && !XkbKeys.TryResolve(combo.Key, out _, out var error)) throw new ArgumentException(error);
-        lock (_gate) Keyboard().Combo(combo.Modifiers, combo.Key);
+        lock (_gate) UseKeyboard(k => k.Combo(combo.Modifiers, combo.Key));
     }
 
     public void KeyDown(string key)
@@ -152,7 +163,7 @@ public sealed class WaylandInputSimulator : IInputSimulator
         var name = Normalize(key);
         lock (_gate)
         {
-            Keyboard().KeyDown(name);
+            UseKeyboard(k => k.KeyDown(name));
             if (!_pressedKeys.Contains(name)) _pressedKeys.Add(name);
         }
     }
@@ -162,7 +173,7 @@ public sealed class WaylandInputSimulator : IInputSimulator
         var name = Normalize(key);
         lock (_gate)
         {
-            Keyboard().KeyUp(name);
+            UseKeyboard(k => k.KeyUp(name));
             _pressedKeys.Remove(name);
         }
     }
@@ -203,18 +214,66 @@ public sealed class WaylandInputSimulator : IInputSimulator
         _ctx.TryGetLayout() ?? _ctx.CaptureLayout ?? throw new InvalidOperationException(
             $"Could not read the screen layout of {_ctx.DesktopName}. Take a screenshot first, or install wlr-randr (wlroots) or kscreen-doctor (KDE).");
 
+    private static bool IsRouteFailure(Exception ex) => ex is WaylandProtocolException or TimeoutException or IOException or InvalidOperationException;
+
+    private void UsePointer(Action<IPointerBackend> action)
+    {
+        while (true)
+        {
+            var p = Pointer();
+            try
+            {
+                action(p);
+                _pointerWorked = true;
+                return;
+            }
+            catch (Exception ex) when (!_pointerWorked && IsRouteFailure(ex))
+            {
+                _failedPointerRoutes.Add(p.Name);
+                _pointerErrors.Add($"{p.Name}: {ex.Message}");
+                try { p.Dispose(); } catch (Exception) { }
+                _pointer = null;
+                if (!PointerCandidates().Any(r => !_failedPointerRoutes.Contains(r)))
+                    throw new InvalidOperationException(PointerHelp(_ctx) + " Details: " + string.Join("; ", _pointerErrors), ex);
+            }
+        }
+    }
+
+    private void UseKeyboard(Action<IKeyboardBackend> action)
+    {
+        while (true)
+        {
+            var k = Keyboard();
+            try
+            {
+                action(k);
+                _keyboardWorked = true;
+                return;
+            }
+            catch (Exception ex) when (!_keyboardWorked && IsRouteFailure(ex))
+            {
+                _failedKeyboardRoutes.Add(k.Name);
+                _keyboardErrors.Add($"{k.Name}: {ex.Message}");
+                try { k.Dispose(); } catch (Exception) { }
+                _keyboard = null;
+                if (!KeyboardCandidates().Any(r => !_failedKeyboardRoutes.Contains(r)))
+                    throw new InvalidOperationException(KeyboardHelp(_ctx) + " Details: " + string.Join("; ", _keyboardErrors), ex);
+            }
+        }
+    }
+
     private IPointerBackend Pointer()
     {
         if (_pointer != null) return _pointer;
-        var errors = new List<string>();
-        foreach (var route in PointerCandidates())
+        var errors = new List<string>(_pointerErrors);
+        foreach (var route in PointerCandidates().Where(r => !_failedPointerRoutes.Contains(r)))
         {
             try
             {
                 var backend = CreatePointer(route);
                 if (backend != null) return _pointer = backend;
             }
-            catch (Exception ex) when (ex is WaylandProtocolException or TimeoutException or IOException or InvalidOperationException)
+            catch (Exception ex) when (IsRouteFailure(ex))
             {
                 errors.Add($"{route}: {ex.Message}");
             }
@@ -225,21 +284,22 @@ public sealed class WaylandInputSimulator : IInputSimulator
     private IKeyboardBackend Keyboard()
     {
         if (_keyboard != null) return _keyboard;
-        var errors = new List<string>();
-        foreach (var route in KeyboardCandidates())
+        var errors = new List<string>(_keyboardErrors);
+        foreach (var route in KeyboardCandidates().Where(r => !_failedKeyboardRoutes.Contains(r)))
         {
             try
             {
                 var backend = CreateKeyboard(route);
                 if (backend != null) return _keyboard = backend;
             }
-            catch (Exception ex) when (ex is WaylandProtocolException or TimeoutException or IOException or InvalidOperationException)
+            catch (Exception ex) when (IsRouteFailure(ex))
             {
                 errors.Add($"{route}: {ex.Message}");
             }
         }
         throw new InvalidOperationException(KeyboardHelp(_ctx) + (errors.Count > 0 ? " Details: " + string.Join("; ", errors) : ""));
     }
+
 
     /// <summary>Pointer routes in order of preference for this desktop.</summary>
     internal IEnumerable<string> PointerCandidates()

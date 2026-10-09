@@ -43,9 +43,16 @@ internal sealed class ProcessCommandRunner : ICommandRunner
 {
     public static readonly ProcessCommandRunner Instance = new();
 
-    private readonly ConcurrentDictionary<string, string?> _found = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, string> _found = new(StringComparer.Ordinal);
 
-    public string? Find(string command) => _found.GetOrAdd(command, c => ExecutableLocator.Find(c));
+    public string? Find(string command)
+    {
+        if (_found.TryGetValue(command, out var path)) return path;
+        // Only hits are cached, so a tool the user installs while DeskPilot runs is found on the next try.
+        path = ExecutableLocator.Find(command);
+        if (path != null) _found[command] = path;
+        return path;
+    }
 
     public CommandResult Run(string command, IReadOnlyList<string> args, int timeoutMs, byte[]? stdin = null)
     {
