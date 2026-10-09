@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=DeskPilot
+GenericName=AI Computer Control
+Comment=Let an AI model use your computer: it sees the screen and works the mouse and keyboard
+Exec=deskpilot
+Icon=deskpilot
+Terminal=false
+Categories=Utility;
+Keywords=AI;assistant;automation;Claude;agent;desktop;control;
+StartupWMClass=deskpilot

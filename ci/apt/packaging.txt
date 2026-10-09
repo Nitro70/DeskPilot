@@ -1,0 +1,2 @@
+# Packaging checks in the test sessions (PackagingScriptTests): desktop-file-validate for the menu entry.
+desktop-file-utils
