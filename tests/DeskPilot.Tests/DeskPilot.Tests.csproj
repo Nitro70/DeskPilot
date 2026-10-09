@@ -25,6 +25,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\DeskPilot.Core\DeskPilot.Core.csproj" />
+    <ProjectReference Include="..\..\src\DeskPilot.Desktop.Windows\DeskPilot.Desktop.Windows.csproj" />
     <ProjectReference Include="..\..\src\DeskPilot\DeskPilot.csproj" />
   </ItemGroup>
 

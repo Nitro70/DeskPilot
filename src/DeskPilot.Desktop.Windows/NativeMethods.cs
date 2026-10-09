@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace DeskPilot.Core.Desktop;
+namespace DeskPilot.Desktop.Windows;
 
 /// <summary>Win32 declarations used by the desktop layer. Kept in one place so struct layouts are easy to audit.</summary>
 internal static unsafe class NativeMethods
@@ -265,7 +265,7 @@ internal static unsafe class NativeMethods
         public int Right;
         public int Bottom;
 
-        public readonly Abstractions.ScreenRect ToScreenRect() => new(Left, Top, Right - Left, Bottom - Top);
+        public readonly DeskPilot.Core.Abstractions.ScreenRect ToScreenRect() => new(Left, Top, Right - Left, Bottom - Top);
     }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]

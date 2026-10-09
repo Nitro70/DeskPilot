@@ -1,4 +1,4 @@
-namespace DeskPilot.Core.Desktop;
+namespace DeskPilot.Desktop.Windows;
 
 /// <summary>
 /// Switches the calling thread to Per-Monitor-V2 DPI awareness for the lifetime of the scope and restores

@@ -4,7 +4,7 @@ using System.Text;
 using DeskPilot.Core.Abstractions;
 using DeskPilot.Core.Runtime;
 
-namespace DeskPilot.Core.Desktop;
+namespace DeskPilot.Desktop.Windows;
 
 /// <summary>
 /// Runs a PowerShell or cmd command in a hidden child process and captures its output. The child gets

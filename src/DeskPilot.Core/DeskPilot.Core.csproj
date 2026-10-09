@@ -1,23 +1,23 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!-- Platform-neutral core: settings, tools, safety, vault, MCP, model backends, session. Runs on Windows and Linux. -->
   <PropertyGroup>
-    <TargetFramework>net10.0-windows</TargetFramework>
-    <!-- WPF brings System.Windows.Automation (UI Automation); WinForms brings System.Drawing. -->
-    <UseWPF>true</UseWPF>
-    <UseWindowsForms>true</UseWindowsForms>
+    <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>DeskPilot.Core</RootNamespace>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
-  <!-- Keep WinForms/System.Drawing names out of implicit usings; import them explicitly where needed. -->
   <ItemGroup>
-    <Using Remove="System.Windows.Forms" />
-    <Using Remove="System.Drawing" />
+    <!-- DPAPI for API keys on Windows (SecretProtector uses a key file on other systems). -->
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.0" />
   </ItemGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="DeskPilot.Tests" />
+    <InternalsVisibleTo Include="DeskPilot.Linux.Tests" />
     <InternalsVisibleTo Include="DeskPilot" />
+    <InternalsVisibleTo Include="DeskPilot.Desktop.Windows" />
+    <InternalsVisibleTo Include="DeskPilot.Desktop.Linux" />
   </ItemGroup>
 
 </Project>

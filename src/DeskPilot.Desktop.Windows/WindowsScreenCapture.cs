@@ -4,9 +4,9 @@ using System.Drawing.Imaging;
 using System.Drawing.Text;
 using System.Runtime.InteropServices;
 using DeskPilot.Core.Abstractions;
-using static DeskPilot.Core.Desktop.NativeMethods;
+using static DeskPilot.Desktop.Windows.NativeMethods;
 
-namespace DeskPilot.Core.Desktop;
+namespace DeskPilot.Desktop.Windows;
 
 /// <summary>
 /// GDI screen capture: BitBlt from the screen DC into a DIB section, optional cursor, high-quality

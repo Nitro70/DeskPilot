@@ -1,8 +1,8 @@
 using System.Runtime.InteropServices;
 using DeskPilot.Core.Abstractions;
-using static DeskPilot.Core.Desktop.NativeMethods;
+using static DeskPilot.Desktop.Windows.NativeMethods;
 
-namespace DeskPilot.Core.Desktop;
+namespace DeskPilot.Desktop.Windows;
 
 /// <summary>
 /// The thin layer between <see cref="WindowsInputSimulator"/> and Win32. Tests substitute a recording fake

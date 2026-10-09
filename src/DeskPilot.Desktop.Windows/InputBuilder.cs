@@ -1,7 +1,7 @@
 using DeskPilot.Core.Abstractions;
-using static DeskPilot.Core.Desktop.NativeMethods;
+using static DeskPilot.Desktop.Windows.NativeMethods;
 
-namespace DeskPilot.Core.Desktop;
+namespace DeskPilot.Desktop.Windows;
 
 /// <summary>
 /// Pure construction of SendInput records. No Win32 calls happen here, so every flag, sign and

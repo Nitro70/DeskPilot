@@ -1,7 +1,7 @@
 using System.Runtime.InteropServices;
 using DeskPilot.Core.Abstractions;
 
-namespace DeskPilot.Core.Desktop;
+namespace DeskPilot.Desktop.Windows;
 
 /// <summary>
 /// Text clipboard access on a dedicated STA thread. Another app may hold the clipboard open for a moment,

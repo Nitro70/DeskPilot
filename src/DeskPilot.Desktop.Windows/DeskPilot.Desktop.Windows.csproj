@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The Windows desktop layer: Win32 screen capture, SendInput, windows, UI Automation, launcher. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <!-- WPF brings System.Windows.Automation (UI Automation); WinForms brings System.Drawing. -->
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>DeskPilot.Desktop.Windows</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <!-- Keep WinForms/System.Drawing names out of implicit usings; import them explicitly where needed. -->
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="DeskPilot.Tests" />
+    <InternalsVisibleTo Include="DeskPilot" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DeskPilot.Core\DeskPilot.Core.csproj" />
+  </ItemGroup>
+
+</Project>

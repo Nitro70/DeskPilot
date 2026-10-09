@@ -1,6 +1,6 @@
 using DeskPilot.Core.Abstractions;
 
-namespace DeskPilot.Core.Desktop;
+namespace DeskPilot.Desktop.Windows;
 
 /// <summary>A virtual key plus the modifiers the keyboard layout needs to produce it.</summary>
 internal readonly record struct KeyStroke(ushort Vk, bool Extended, bool NeedsShift = false, bool NeedsCtrl = false, bool NeedsAlt = false);

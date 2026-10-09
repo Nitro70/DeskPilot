@@ -1,9 +1,9 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using DeskPilot.Core.Abstractions;
-using static DeskPilot.Core.Desktop.NativeMethods;
+using static DeskPilot.Desktop.Windows.NativeMethods;
 
-namespace DeskPilot.Core.Desktop;
+namespace DeskPilot.Desktop.Windows;
 
 /// <summary>Top-level window enumeration, hit testing, focus and elevation checks.</summary>
 public sealed class WindowsWindowManager : IWindowManager

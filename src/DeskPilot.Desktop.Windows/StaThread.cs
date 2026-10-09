@@ -1,6 +1,6 @@
 using System.Runtime.ExceptionServices;
 
-namespace DeskPilot.Core.Desktop;
+namespace DeskPilot.Desktop.Windows;
 
 /// <summary>Runs a function on a fresh STA thread (clipboard and shell COM objects need one) with a timeout.</summary>
 internal static class StaThread

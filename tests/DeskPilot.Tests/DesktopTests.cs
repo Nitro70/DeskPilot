@@ -3,9 +3,9 @@ using System.Runtime.InteropServices;
 using System.Security.Principal;
 using System.Text;
 using DeskPilot.Core.Abstractions;
-using DeskPilot.Core.Desktop;
+using DeskPilot.Desktop.Windows;
 using Xunit.Abstractions;
-using static DeskPilot.Core.Desktop.NativeMethods;
+using static DeskPilot.Desktop.Windows.NativeMethods;
 
 namespace DeskPilot.Tests;
 

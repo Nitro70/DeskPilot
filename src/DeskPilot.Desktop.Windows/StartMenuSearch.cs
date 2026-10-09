@@ -1,4 +1,4 @@
-namespace DeskPilot.Core.Desktop;
+namespace DeskPilot.Desktop.Windows;
 
 /// <summary>A launchable Start-menu entry: a shortcut file, or an app in shell:AppsFolder identified by its AUMID.</summary>
 internal sealed record StartMenuEntry(string Name, string? ShortcutPath, string? AppUserModelId);

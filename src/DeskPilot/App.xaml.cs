@@ -3,7 +3,7 @@ using System.Windows.Threading;
 using DeskPilot.Core.Abstractions;
 using DeskPilot.Core.Agent;
 using DeskPilot.Core.Backends.Http;
-using DeskPilot.Core.Desktop;
+using DeskPilot.Desktop.Windows;
 using DeskPilot.Core.Runtime;
 using DeskPilot.Core.Settings;
 using DeskPilot.Services;

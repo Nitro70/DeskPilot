@@ -2,7 +2,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using DeskPilot.Core.Abstractions;
 
-namespace DeskPilot.Core.Desktop;
+namespace DeskPilot.Desktop.Windows;
 
 /// <summary>
 /// Opens apps, files, folders and URLs. Never uses the "runas" verb. When elevation is not allowed, programs

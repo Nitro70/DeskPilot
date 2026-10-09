@@ -1,7 +1,7 @@
 using DeskPilot.Core.Abstractions;
-using static DeskPilot.Core.Desktop.NativeMethods;
+using static DeskPilot.Desktop.Windows.NativeMethods;
 
-namespace DeskPilot.Core.Desktop;
+namespace DeskPilot.Desktop.Windows;
 
 /// <summary>
 /// Mouse and keyboard through SendInput, in physical virtual-desktop pixels. Keeps track of every key and

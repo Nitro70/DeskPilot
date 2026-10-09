@@ -1,6 +1,6 @@
 using DeskPilot.Core.Abstractions;
 using DeskPilot.Core.Agent;
-using DeskPilot.Core.Desktop;
+using DeskPilot.Desktop.Windows;
 using DeskPilot.Core.Settings;
 
 namespace DeskPilot.Tests;

@@ -34,6 +34,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DeskPilot.Core\DeskPilot.Core.csproj" />
+    <ProjectReference Include="..\DeskPilot.Desktop.Windows\DeskPilot.Desktop.Windows.csproj" />
   </ItemGroup>
 
   <ItemGroup>

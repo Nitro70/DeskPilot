@@ -1,7 +1,7 @@
 using System.Text.RegularExpressions;
 using Microsoft.Win32;
 
-namespace DeskPilot.Core.Desktop;
+namespace DeskPilot.Desktop.Windows;
 
 internal enum LaunchKind
 {

@@ -1,6 +1,6 @@
 using DeskPilot.Core.Abstractions;
 
-namespace DeskPilot.Core.Desktop;
+namespace DeskPilot.Desktop.Windows;
 
 public static class DesktopFactory
 {

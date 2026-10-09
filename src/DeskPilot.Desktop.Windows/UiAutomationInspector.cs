@@ -1,7 +1,7 @@
 using System.Windows.Automation;
 using DeskPilot.Core.Abstractions;
 
-namespace DeskPilot.Core.Desktop;
+namespace DeskPilot.Desktop.Windows;
 
 /// <summary>
 /// UI Automation reads. Every query runs on its own background thread with a timeout, because UIA calls
