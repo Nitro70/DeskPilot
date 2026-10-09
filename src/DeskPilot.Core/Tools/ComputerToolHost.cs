@@ -378,9 +378,18 @@ public sealed partial class ComputerToolHost : IToolHost
         int grid = mapper.Mode == CoordinateMode.ScreenshotPixels ? Math.Max(0, screen.GridSpacing) : 0;
         var request = new CaptureRequest(mapper.Source, mapper.ImageWidth, mapper.ImageHeight, ParseFormat(screen.Format),
             Math.Clamp(screen.JpegQuality, 1, 100), screen.DrawCursor, grid);
-        var frame = _desktop.Screen.Capture(request);
+        var frame = await CaptureFrameAsync(request, ct).ConfigureAwait(false);
         var image = ToolImage.FromBytes(frame.Data, frame.MediaType, frame.Width, frame.Height);
         return (StateLine(call, "Screenshot"), image);
+    }
+
+    /// <summary>Captures with DeskPilot's own UI hidden where the platform cannot exclude it from capture.</summary>
+    private async Task<CapturedFrame> CaptureFrameAsync(CaptureRequest request, CancellationToken ct)
+    {
+        if (_observer is not ICaptureObserver co) return _desktop.Screen.Capture(request);
+        await co.BeforeCaptureAsync(ct).ConfigureAwait(false);
+        try { return _desktop.Screen.Capture(request); }
+        finally { co.AfterCapture(); }
     }
 
     /// <summary>"Screenshot 1280x720 of the primary monitor (2560x1440 px). Active window: 'Title' (process). Mouse at (x, y)."</summary>

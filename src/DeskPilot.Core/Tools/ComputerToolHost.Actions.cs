@@ -24,12 +24,12 @@ public sealed partial class ComputerToolHost
         return image == null ? ToolResult.Ok(text) : ToolResult.Ok(text, image);
     }
 
-    private Task<ToolResult> ZoomAsync(Call call, JsonElement args, CancellationToken ct)
+    private async Task<ToolResult> ZoomAsync(Call call, JsonElement args, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
         string usage = $"zoom takes x, y, width and height (numbers): the region's top-left corner and size in {SpaceRange(call)}.";
         if (!call.Vision)
-            return Task.FromResult(ToolResult.Error("zoom returns an image, and this model cannot see images. Use ui_elements to read names and positions instead."));
+            return ToolResult.Error("zoom returns an image, and this model cannot see images. Use ui_elements to read names and positions instead.");
 
         var x = JsonArgs.GetDouble(args, "x");
         var y = JsonArgs.GetDouble(args, "y");
@@ -37,24 +37,24 @@ public sealed partial class ComputerToolHost
         var h = JsonArgs.GetDouble(args, "height");
         if (x is not { } rx || y is not { } ry || w is not { } rw || h is not { } rh ||
             !double.IsFinite(rx) || !double.IsFinite(ry) || !double.IsFinite(rw) || !double.IsFinite(rh))
-            return Task.FromResult(Usage("Missing or invalid region.", usage));
+            return Usage("Missing or invalid region.", usage);
         if (rw <= 0 || rh <= 0)
-            return Task.FromResult(Usage("'width' and 'height' must be greater than 0.", usage));
+            return Usage("'width' and 'height' must be greater than 0.", usage);
 
         var mapper = call.Mapper;
         if (rx < 0 || ry < 0 || rx >= mapper.ModelWidth || ry >= mapper.ModelHeight)
-            return Task.FromResult(Usage($"The region's top-left corner ({N(rx)}, {N(ry)}) is outside the screen.", usage));
+            return Usage($"The region's top-left corner ({N(rx)}, {N(ry)}) is outside the screen.", usage);
 
         bool clipped = rx + rw > mapper.ModelWidth + 0.5 || ry + rh > mapper.ModelHeight + 0.5;
         var physical = mapper.ToScreenRect(rx, ry, rw, rh);
         if (physical.IsEmpty || physical.Width < 2 || physical.Height < 2)
-            return Task.FromResult(Usage("The region is too small to zoom into; make it a few pixels wide and high at least.", usage));
+            return Usage("The region is too small to zoom into; make it a few pixels wide and high at least.", usage);
 
         var screen = call.Screen;
         var (tw, th) = CoordinateMapper.FitWithin(physical.Width, physical.Height, screen.MaxImageWidth, screen.MaxImageHeight);
         // No grid: its labels would be zoom-image pixels, which are not valid click coordinates.
-        var frame = _desktop.Screen.Capture(new CaptureRequest(physical, tw, th, ParseFormat(screen.Format),
-            Math.Clamp(screen.JpegQuality, 1, 100), screen.DrawCursor, 0));
+        var frame = await CaptureFrameAsync(new CaptureRequest(physical, tw, th, ParseFormat(screen.Format),
+            Math.Clamp(screen.JpegQuality, 1, 100), screen.DrawCursor, 0), ct).ConfigureAwait(false);
         var image = ToolImage.FromBytes(frame.Data, frame.MediaType, frame.Width, frame.Height);
 
         var (mx, my, mw, mh) = mapper.FromScreen(physical);
@@ -66,7 +66,7 @@ public sealed partial class ComputerToolHost
             $"shown as a {frame.Width}x{frame.Height} image ({F(factor)}x the detail of the screenshot). " +
             $"Clicks must still use full-screenshot coordinates, not zoom-image pixels: a point (u, v) in this image is at " +
             $"({N(mx)} + u * {P(perU)}, {N(my)} + v * {P(perV)}) in {SpaceName(call)}.";
-        return Task.FromResult(ToolResult.Ok(text, image));
+        return ToolResult.Ok(text, image);
     }
 
     private async Task<ToolResult> WaitAsync(Call call, JsonElement args, CancellationToken ct)
@@ -558,18 +558,13 @@ public sealed partial class ComputerToolHost
 
     private async Task<ToolResult> RunCommandAsync(Call call, JsonElement args, CancellationToken ct)
     {
-        const string usage = "run_command takes command (a string), and optionally shell (powershell or cmd) and timeout_seconds (1-600, default 60).";
+        string usage = $"run_command takes command (a string), and optionally shell ({string.Join(" or ", ShellNames)}) and timeout_seconds (1-600, default 60).";
         var command = JsonArgs.GetString(args, "command");
         if (string.IsNullOrWhiteSpace(command)) return Usage("'command' is missing.", usage);
 
         var rawShell = JsonArgs.GetString(args, "shell")?.Trim();
-        string? shell = (rawShell ?? "").ToLowerInvariant() switch
-        {
-            "" or "powershell" or "powershell.exe" or "pwsh" or "ps" => "powershell",
-            "cmd" or "cmd.exe" => "cmd",
-            _ => null,
-        };
-        if (shell == null) return Usage($"'shell' must be powershell or cmd, not '{rawShell}'.", usage);
+        string? shell = NormalizeShell(rawShell);
+        if (shell == null) return Usage($"'shell' must be {string.Join(" or ", ShellNames)}, not '{rawShell}'.", usage);
 
         int timeoutSeconds = 60;
         if (JsonArgs.Has(args, "timeout_seconds"))
@@ -592,6 +587,31 @@ public sealed partial class ComputerToolHost
                 return new ActionOutcome(true, FormatShellResult(result, timeoutSeconds));
             },
         }, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>Shells run_command accepts on this OS, default first.</summary>
+    internal static IReadOnlyList<string> ShellNames => OperatingSystem.IsWindows()
+        ? new[] { "powershell", "cmd" }
+        : new[] { "bash", "sh" };
+
+    internal static string? NormalizeShell(string? raw)
+    {
+        var v = (raw ?? "").Trim().ToLowerInvariant();
+        if (OperatingSystem.IsWindows())
+        {
+            return v switch
+            {
+                "" or "powershell" or "powershell.exe" or "pwsh" or "ps" => "powershell",
+                "cmd" or "cmd.exe" => "cmd",
+                _ => null,
+            };
+        }
+        return v switch
+        {
+            "" or "bash" or "/bin/bash" or "zsh" or "fish" => "bash",
+            "sh" or "/bin/sh" or "dash" => "sh",
+            _ => null,
+        };
     }
 
     internal static string FormatShellResult(ShellResult result, int timeoutSeconds)

@@ -19,6 +19,20 @@ public static class ExecutableLocator
 
         if (Path.IsPathRooted(command) && File.Exists(command)) return command;
 
+        if (!OperatingSystem.IsWindows())
+        {
+            foreach (var dir in UnixSearchDirectories(extraCandidates))
+            {
+                try
+                {
+                    var candidate = Path.Combine(dir, command);
+                    if (IsUnixExecutable(candidate)) return candidate;
+                }
+                catch (ArgumentException) { }
+            }
+            return null;
+        }
+
         foreach (var dir in SearchDirectories(extraCandidates))
         {
             foreach (var ext in Extensions)
@@ -32,6 +46,47 @@ public static class ExecutableLocator
             }
         }
         return null;
+    }
+
+    private static bool IsUnixExecutable(string path)
+    {
+        if (OperatingSystem.IsWindows() || !File.Exists(path)) return false;
+        const UnixFileMode anyExec = UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute;
+        return (File.GetUnixFileMode(path) & anyExec) != 0;
+    }
+
+    /// <summary>PATH, then the places Linux installers put user tools (Claude Code native, npm, bun, nvm, snap...).</summary>
+    private static IEnumerable<string> UnixSearchDirectories(IEnumerable<string>? extra)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var dirs = new List<string>();
+        if (extra != null) dirs.AddRange(extra);
+        dirs.Add(Path.Combine(home, ".local", "bin"));
+        var path = Environment.GetEnvironmentVariable("PATH");
+        if (!string.IsNullOrEmpty(path)) dirs.AddRange(path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries));
+        dirs.Add(Path.Combine(home, ".claude", "local"));
+        dirs.Add(Path.Combine(home, ".npm-global", "bin"));
+        dirs.Add(Path.Combine(home, ".bun", "bin"));
+        dirs.Add(Path.Combine(home, ".volta", "bin"));
+        dirs.Add(Path.Combine(home, ".deno", "bin"));
+        dirs.Add(Path.Combine(home, "bin"));
+        try
+        {
+            var nvm = Path.Combine(home, ".nvm", "versions", "node");
+            if (Directory.Exists(nvm))
+                dirs.AddRange(Directory.GetDirectories(nvm).OrderByDescending(d => d, StringComparer.Ordinal).Select(d => Path.Combine(d, "bin")));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        dirs.AddRange(new[] { "/usr/local/bin", "/usr/bin", "/bin", "/snap/bin", "/var/lib/flatpak/exports/bin", "/home/linuxbrew/.linuxbrew/bin" });
+
+        foreach (var d in dirs)
+        {
+            var t = d.Trim();
+            if (t.StartsWith("~/", StringComparison.Ordinal)) t = Path.Combine(home, t[2..]);
+            if (t.Length == 0 || !seen.Add(t)) continue;
+            if (Directory.Exists(t)) yield return t;
+        }
     }
 
     private static IEnumerable<string> SearchDirectories(IEnumerable<string>? extra)

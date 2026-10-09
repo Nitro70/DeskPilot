@@ -136,11 +136,14 @@ public sealed partial class ComputerToolHost
 
         if (s.Safety.AllowShellCommands)
             tools.Add(Spec("run_command",
-                "Run a PowerShell or cmd command in a hidden window, not as administrator, with the user's home folder as working directory, and return " +
+                (OperatingSystem.IsWindows()
+                    ? "Run a PowerShell or cmd command in a hidden window, not as administrator, "
+                    : "Run a bash or sh command without a terminal window, not as root, ") +
+                "with the user's home folder as working directory, and return " +
                 $"its exit code and output (each stream truncated to about {OutputStreamLimit / 1000} KB). Not interactive: commands that wait for input time out.",
                 Schema(
                     ("command", Str("The command line to run."), true),
-                    ("shell", Enum("Shell: powershell (default) or cmd.", "powershell", "cmd"), false),
+                    ("shell", Enum($"Shell: {ComputerToolHost.ShellNames[0]} (default) or {ComputerToolHost.ShellNames[1]}.", ComputerToolHost.ShellNames.ToArray()), false),
                     ("timeout_seconds", Int("Time limit in seconds, 1-600 (default 60)."), false))));
 
         return tools;

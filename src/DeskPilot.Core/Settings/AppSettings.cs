@@ -132,11 +132,18 @@ public sealed class SafetySettings
         @"\bgsudo\b",
         @"\bpsexec\b",
         @"\bnircmd(c)?\s+elevate\b",
+        @"\bpkexec\b",
+        @"\bdoas\b",
+        @"(^|[;&|]\s*)su(\s+-|\s+root|\s*$)",
+        @"\b(gksu|gksudo|kdesu|kdesudo|beesu)\b",
+        @"\brun0\b",
     };
     /// <summary>Programs that always trigger UAC; launching them is blocked when admin mode is off.</summary>
     public List<string> ElevatedLaunchTargets { get; set; } = new()
     {
         "regedit", "regedt32", "gpedit.msc", "secpol.msc", "diskmgmt.msc", "lusrmgr.msc", "wf.msc", "compmgmt.msc", "netplwiz", "msconfig", "UserAccountControlSettings",
+        // Linux programs that always ask for root through polkit.
+        "gparted", "synaptic", "timeshift-launcher", "pkexec", "gufw", "system-config-printer", "bleachbit-root",
     };
 }
 

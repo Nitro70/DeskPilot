@@ -7,14 +7,33 @@ public static class ObsidianVaultDetector
 {
     private const long MaxConfigBytes = 4 * 1024 * 1024;
 
-    /// <summary>Vault folders Obsidian knows about (from %APPDATA%\\obsidian\\obsidian.json) that still exist.</summary>
+    /// <summary>
+    /// Where obsidian.json lives: %APPDATA%\obsidian on Windows; ~/.config/obsidian on Linux, plus the Flatpak
+    /// and Snap sandboxes.
+    /// </summary>
+    internal static IEnumerable<string> ConfigCandidates()
+    {
+        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        if (!string.IsNullOrEmpty(appData)) yield return Path.Combine(appData, "obsidian", "obsidian.json");
+        if (OperatingSystem.IsWindows()) yield break;
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (string.IsNullOrEmpty(home)) yield break;
+        yield return Path.Combine(home, ".var", "app", "md.obsidian.Obsidian", "config", "obsidian", "obsidian.json");
+        yield return Path.Combine(home, "snap", "obsidian", "current", ".config", "obsidian", "obsidian.json");
+    }
+
+    /// <summary>Vault folders Obsidian knows about (from obsidian.json, see ConfigCandidates) that still exist.</summary>
     public static IReadOnlyList<string> FindVaults()
     {
         try
         {
-            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            if (string.IsNullOrEmpty(appData)) return Array.Empty<string>();
-            return FindVaults(Path.Combine(appData, "obsidian", "obsidian.json"));
+            var found = new List<string>();
+            foreach (var config in ConfigCandidates())
+            {
+                foreach (var v in FindVaults(config))
+                    if (!found.Contains(v, StringComparer.OrdinalIgnoreCase)) found.Add(v);
+            }
+            return found;
         }
         catch (Exception)
         {

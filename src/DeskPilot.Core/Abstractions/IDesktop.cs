@@ -126,7 +126,7 @@ public sealed record ShellResult(int ExitCode, string StdOut, string StdErr, boo
 
 public interface IShellRunner
 {
-    /// <summary>Runs a command non-elevated with no visible window. shell = "powershell" or "cmd".</summary>
+    /// <summary>Runs a command non-elevated with no visible window. shell = "powershell" or "cmd" on Windows, "bash" or "sh" on Linux.</summary>
     Task<ShellResult> RunAsync(string command, string shell, string workingDirectory, int timeoutMs, CancellationToken ct);
 }
 
@@ -148,4 +148,15 @@ public interface IInputActionObserver
 {
     Task BeforeInputAsync(ScreenPoint? target, CancellationToken ct);
     void AfterInput();
+}
+
+/// <summary>
+/// Optional, implemented by the same object as IInputActionObserver: hide DeskPilot's own UI while a screenshot
+/// is taken. Windows excludes DeskPilot's windows from capture instead; Linux has no such API, so the overlay
+/// hides for the moment of the capture.
+/// </summary>
+public interface ICaptureObserver
+{
+    Task BeforeCaptureAsync(CancellationToken ct);
+    void AfterCapture();
 }
