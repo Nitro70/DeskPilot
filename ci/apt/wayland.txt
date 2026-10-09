@@ -1,0 +1,4 @@
+# Wayland layer tests (headless sway): swaybg draws the solid background the capture tests check,
+# wlr-randr is one of the output sources the layout code parses.
+swaybg
+wlr-randr
