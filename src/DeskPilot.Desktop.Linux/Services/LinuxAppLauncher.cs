@@ -85,7 +85,9 @@ public sealed partial class LinuxAppLauncher : IAppLauncher
             {
                 LinuxLaunchKind.Uri => OpenWithDefaultApp(classified.Value, classified.Value),
                 LinuxLaunchKind.Path => OpenPath(classified.Value, args, allowElevation),
-                LinuxLaunchKind.MissingPath => new LaunchResult(false, $"Nothing exists at '{classified.Value}'. Check the path (list the folder with run_command or open its parent folder).", null),
+                LinuxLaunchKind.MissingPath => SplitCommand(target) is { } inline
+                    ? StartProgram(inline.Program, inline.Arguments.Concat(args).ToList(), allowElevation, Home)
+                    : new LaunchResult(false, $"Nothing exists at '{classified.Value}'. Check the path (list the folder with run_command or open its parent folder).", null),
                 LinuxLaunchKind.Command => StartProgram(classified.Value, args, allowElevation, Home),
                 _ => LaunchByName(classified.Value, args, allowElevation),
             };
@@ -229,14 +231,25 @@ public sealed partial class LinuxAppLauncher : IAppLauncher
         var best = DesktopEntries.FindBest(entries, name, DesktopEntries.CurrentDesktops(_env));
         if (best != null) return LaunchEntry(best.Entry, args, allowElevation);
 
-        // "gedit notes.txt": a command with its arguments written into the target.
-        var words = LinuxTools.SplitArguments(name);
-        if (words.Count > 1 && ResolveCommand(words[0]) is { } program)
-            return StartProgram(program, words.Skip(1).Concat(args).ToList(), allowElevation, Home);
+        if (SplitCommand(name) is { } inline)
+            return StartProgram(inline.Program, inline.Arguments.Concat(args).ToList(), allowElevation, Home);
 
         return new LaunchResult(false,
             $"Could not find an app, file, folder or URL called '{name}'. Try the name shown in the app menu, the program's command name, a full path, or a URL.",
             null);
+    }
+
+    /// <summary>
+    /// "gedit notes.txt" or "/opt/app/run --flag": a command with its arguments written into the target. The first word
+    /// must be a program on PATH or an existing executable file.
+    /// </summary>
+    private (string Program, List<string> Arguments)? SplitCommand(string target)
+    {
+        var words = LinuxTools.SplitArguments(target);
+        if (words.Count < 2) return null;
+        var first = ExpandPath(words[0], _env, Home);
+        var program = first.StartsWith('/') ? (LinuxTools.IsExecutableFile(first) ? first : null) : ResolveCommand(first);
+        return program == null ? null : (program, words.Skip(1).ToList());
     }
 
     /// <summary>TryExec names a program that must exist for the entry to count as installed.</summary>
