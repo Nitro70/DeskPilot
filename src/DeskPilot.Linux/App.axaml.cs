@@ -87,7 +87,7 @@ public partial class App : Application
             }
 
             _overlay = new OverlayController(_store, _sessionInfo.Kind);
-            var confirmation = new AvaloniaUserConfirmation();
+            var confirmation = new AvaloniaUserConfirmation(desktop.Windows);
             _session = new AgentSession(_store, desktop, confirmation, _overlay, Environment.ProcessPath!);
             var catalog = new ModelCatalog();
             var detector = new EnvironmentDetector(desktop.Screen, desktop.Windows) { Settings = () => _store.Current };
@@ -352,7 +352,9 @@ public partial class App : Application
     private void OnShutdownRequested(object? sender, ShutdownRequestedEventArgs e)
     {
         if (_exiting) return;
-        // The session is ending (log out, shutdown): no dialogs, just leave cleanly.
+        // The session is ending (log out, shutdown): no dialogs, but take the few seconds needed to stop the
+        // agent's child processes; ExitAsync ends with an explicit Shutdown.
+        e.Cancel = true;
         try { _main?.SaveBounds(); }
         catch (Exception) { }
         _tray?.Dispose();

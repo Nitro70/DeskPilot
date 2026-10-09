@@ -148,7 +148,7 @@
     </Styles.Resources>
 
     <!-- ============================================================ Windows and text -->
-    <Style Selector="Window">
+    <Style Selector=":is(Window)">
         <Setter Property="Background" Value="{DynamicResource BgBrush}" />
         <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
     </Style>

@@ -524,7 +524,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         AdminMode = s.Safety.AllowAdmin;
         DryRun = s.Safety.DryRun;
-        StopHotkeyText = StopHint.StatusText(_sessionKind, s.Ui.StopHotkey);
+        StopHotkeyText = StopHint.StatusText(_sessionKind, s.Ui.StopHotkey, s.Safety.FailsafeCorner);
         OnPropertyChanged(nameof(SendButtonTooltip));
     }
 

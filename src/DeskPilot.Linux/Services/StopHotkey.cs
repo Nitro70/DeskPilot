@@ -106,17 +106,18 @@ public static class StopHotkey
 public static class StopHint
 {
     public const string WaylandStatus = "Stop: overlay button, tray or top-left corner";
+    public const string WaylandStatusNoCorner = "Stop: overlay button or tray";
     public const string WaylandTooltip =
         "Wayland does not let apps register global hotkeys. Stop DeskPilot with the Stop button on the overlay, " +
-        "the tray icon, or by moving the mouse into the top-left corner of the screen.";
+        "the tray icon, or by moving the mouse into the top-left corner of the screen (when that failsafe is on).";
 
     /// <summary>True when a global stop hotkey can exist in this session (X11 only).</summary>
     public static bool HotkeySupported(LinuxSessionKind kind) => kind != LinuxSessionKind.Wayland;
 
     /// <summary>Status bar text: the hotkey under X11, the other stop controls under Wayland.</summary>
-    public static string StatusText(LinuxSessionKind kind, string? hotkeyText)
+    public static string StatusText(LinuxSessionKind kind, string? hotkeyText, bool failsafeCorner = true)
     {
-        if (!HotkeySupported(kind)) return WaylandStatus;
+        if (!HotkeySupported(kind)) return failsafeCorner ? WaylandStatus : WaylandStatusNoCorner;
         var display = StopHotkey.Display(hotkeyText);
         return display.Length == 0 ? "No stop hotkey" : $"Stop: {display}";
     }

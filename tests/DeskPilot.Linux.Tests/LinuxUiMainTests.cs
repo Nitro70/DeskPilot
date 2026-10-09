@@ -493,6 +493,8 @@ public class LinuxUiMainTests
         Assert.Equal("Stop: Ctrl+Alt+X", StopHint.StatusText(LinuxSessionKind.X11, "ctrl+alt+x"));
         Assert.Equal("No stop hotkey", StopHint.StatusText(LinuxSessionKind.X11, ""));
         Assert.Equal("Stop: overlay button, tray or top-left corner", StopHint.StatusText(LinuxSessionKind.Wayland, "ctrl+alt+x"));
+        Assert.Equal("Stop: overlay button or tray", StopHint.StatusText(LinuxSessionKind.Wayland, "ctrl+alt+x", failsafeCorner: false));
+        Assert.Equal("Stop: Ctrl+Alt+X", StopHint.StatusText(LinuxSessionKind.X11, "ctrl+alt+x", failsafeCorner: false));
         Assert.Equal("Ctrl+Alt+X to stop", StopHint.OverlayText(LinuxSessionKind.X11, "Ctrl+Alt+X", hotkeyActive: true, failsafeCorner: true));
         Assert.Equal("Top-left corner stops", StopHint.OverlayText(LinuxSessionKind.X11, "Ctrl+Alt+X", hotkeyActive: false, failsafeCorner: true));
         Assert.Equal("Top-left corner stops", StopHint.OverlayText(LinuxSessionKind.Wayland, "Ctrl+Alt+X", hotkeyActive: true, failsafeCorner: true));
@@ -722,6 +724,26 @@ public class LinuxUiMainTests
         finally
         {
             window.Close();
+        }
+    }
+
+    private sealed class UiPlainDerivedWindow : Window
+    {
+    }
+
+    [AvaloniaFact]
+    public void Theme_dark_background_reaches_derived_windows_that_set_none()
+    {
+        var w = new UiPlainDerivedWindow();
+        w.Show();
+        try
+        {
+            Assert.Same(Application.Current!.FindResource("BgBrush"), w.Background);
+            Assert.Same(Application.Current!.FindResource("TextBrush"), w.Foreground);
+        }
+        finally
+        {
+            w.Close();
         }
     }
 
@@ -1021,6 +1043,189 @@ public class LinuxUiMainTests
         Assert.False(window.IsVisible);
 
         Assert.Equal(ConfirmationChoice.Deny, await service.ConfirmAsync(action, new CancellationToken(canceled: true)));
+    }
+
+    internal sealed class UiFakeWindows : IWindowManager
+    {
+        public WindowInfo? Foreground { get; set; }
+        public List<nint> Focused { get; } = new();
+        public IReadOnlyList<WindowInfo> ListWindows() => Foreground == null ? Array.Empty<WindowInfo>() : new[] { Foreground };
+        public WindowInfo? GetForegroundWindow() => Foreground;
+        public WindowInfo? GetWindowAt(int x, int y) => Foreground;
+        public bool FocusWindow(nint handle)
+        {
+            Focused.Add(handle);
+            return true;
+        }
+        public bool IsCurrentProcessElevated => false;
+        public bool IsUacPromptActive() => false;
+    }
+
+    private static WindowInfo FakeWindow(nint handle, int pid) =>
+        new(handle, "Text Editor", "gedit", "gedit", pid, new ScreenRect(0, 0, 800, 600), true, false, true, false, false);
+
+    [AvaloniaFact]
+    public async Task Confirmation_hands_the_focus_back_to_the_window_the_agent_was_using()
+    {
+        var windows = new UiFakeWindows { Foreground = FakeWindow(0x4200007, Environment.ProcessId + 100000) };
+        var service = new AvaloniaUserConfirmation(windows);
+        ConfirmWindow? opened = null;
+        service.DialogOpened += w => opened = w;
+        var pending = service.ConfirmAsync(new ProposedAction("type_text", "Type 'hello'", ActionRisk.Medium, Text: "hello"), CancellationToken.None);
+        Dispatcher.UIThread.RunJobs();
+        opened!.CloseWith(ConfirmationChoice.Deny);
+        Assert.Equal(ConfirmationChoice.Deny, await pending);
+        Assert.Equal(new nint[] { 0x4200007 }, windows.Focused);
+
+        // DeskPilot's own window in front: nothing to hand back.
+        windows.Focused.Clear();
+        windows.Foreground = FakeWindow(0x99, Environment.ProcessId);
+        opened = null;
+        pending = service.ConfirmAsync(new ProposedAction("click", "Click", ActionRisk.Medium), CancellationToken.None);
+        Dispatcher.UIThread.RunJobs();
+        opened!.CloseWith(ConfirmationChoice.Allow);
+        Assert.Equal(ConfirmationChoice.Allow, await pending);
+        Assert.Empty(windows.Focused);
+    }
+
+    [AvaloniaFact]
+    public void Model_box_commits_a_picked_or_typed_model()
+    {
+        var (vm, _, ui, store) = NewViewModel();
+        var window = new MainWindow(vm);
+        window.Show();
+        try
+        {
+            vm.Models.Add(ModelOption.FromId("picked-model"));
+            var box = window.FindControl<ComboBox>("ModelBox")!;
+            box.SelectedItem = vm.Models.Single(m => m.Id == "picked-model");
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal("picked-model", vm.ModelText);
+            Assert.Equal("picked-model", store.Current.ActiveProfile!.Model);
+
+            box.Focus();
+            box.Text = "typed-model";
+            window.KeyPress(Avalonia.Input.Key.Enter, Avalonia.Input.RawInputModifiers.None, Avalonia.Input.PhysicalKey.Enter, "\r");
+            Dispatcher.UIThread.RunJobs();
+            ui.RunAll();
+            Assert.Equal("typed-model", vm.ModelText);
+            Assert.Equal("typed-model", store.Current.ActiveProfile!.Model);
+        }
+        finally
+        {
+            window.AllowClose = true;
+            window.Close();
+            vm.Dispose();
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task Main_window_minimizes_while_working_and_escape_stops()
+    {
+        var (vm, session, ui, _) = NewViewModel(configure: s => s.Ui.MinimizeWhileWorking = true);
+        var release = new TaskCompletionSource();
+        session.OnSend = async (_, _) =>
+        {
+            await release.Task;
+            return new TurnResult(TurnOutcome.Completed, null, new TurnStats(0, 0, 0, null, TimeSpan.Zero, null), null);
+        };
+        var window = new MainWindow(vm);
+        window.Show();
+        try
+        {
+            vm.InputText = "work";
+            var send = vm.SendAsync();
+            Assert.Equal(WindowState.Minimized, window.WindowState);
+
+            window.KeyPress(Avalonia.Input.Key.Escape, Avalonia.Input.RawInputModifiers.None, Avalonia.Input.PhysicalKey.Escape, null);
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal(1, session.StopCalls);
+
+            release.SetResult();
+            await send;
+            ui.RunAll();
+            Assert.Equal(WindowState.Normal, window.WindowState);
+        }
+        finally
+        {
+            window.AllowClose = true;
+            window.Close();
+            vm.Dispose();
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task Copy_log_puts_the_conversation_on_the_clipboard_and_says_so()
+    {
+        var (vm, _, _, _) = NewViewModel();
+        var window = new MainWindow(vm);
+        window.Show();
+        try
+        {
+            vm.Conversation.AddStatus("hello clipboard");
+            vm.CopyLogCommand.Execute(null);
+            var note = window.FindControl<TextBlock>("TransientNote")!;
+            var deadline = DateTime.UtcNow.AddSeconds(5);
+            while (!note.IsVisible && DateTime.UtcNow < deadline)
+            {
+                Dispatcher.UIThread.RunJobs();
+                await Task.Delay(10);
+            }
+            Assert.True(note.IsVisible);
+            Assert.False(string.IsNullOrWhiteSpace(note.Text));
+        }
+        finally
+        {
+            window.AllowClose = true;
+            window.Close();
+            vm.Dispose();
+        }
+    }
+
+    [AvaloniaFact]
+    public void Log_follows_new_items_until_the_user_scrolls_up()
+    {
+        var (vm, _, _, _) = NewViewModel();
+        var window = new MainWindow(vm) { Width = 900, Height = 600 };
+        window.Show();
+        try
+        {
+            var scroll = window.FindControl<ScrollViewer>("LogScroll")!;
+            var jump = window.FindControl<Button>("JumpToLatest")!;
+            void Settle()
+            {
+                for (int i = 0; i < 4; i++)
+                {
+                    Dispatcher.UIThread.RunJobs();
+                    window.CaptureRenderedFrame();
+                }
+            }
+            bool AtBottom() => scroll.Offset.Y >= scroll.Extent.Height - scroll.Viewport.Height - 10;
+
+            for (int i = 0; i < 120; i++) vm.Conversation.AddStatus($"line {i}");
+            Settle();
+            Assert.True(scroll.Extent.Height > scroll.Viewport.Height);
+            Assert.True(AtBottom(), $"offset {scroll.Offset.Y}, extent {scroll.Extent.Height}, viewport {scroll.Viewport.Height}");
+            Assert.False(jump.IsVisible);
+
+            scroll.Offset = new Vector(0, 0);
+            Settle();
+            vm.Conversation.AddStatus("one more");
+            Settle();
+            Assert.False(AtBottom());
+            Assert.True(jump.IsVisible);
+
+            jump.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            Settle();
+            Assert.True(AtBottom());
+            Assert.False(jump.IsVisible);
+        }
+        finally
+        {
+            window.AllowClose = true;
+            window.Close();
+            vm.Dispose();
+        }
     }
 
     [AvaloniaFact]
