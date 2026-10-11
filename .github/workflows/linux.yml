@@ -11,6 +11,7 @@ jobs:
   test:
     name: test (${{ matrix.session }})
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -30,7 +31,10 @@ jobs:
           for f in ci/setup.d/*.sh; do sudo bash "$f"; done
 
       - name: Build
-        run: dotnet build tests/DeskPilot.Linux.Tests -c Release
+        # nuget.org sometimes resets connections from CI runners: retry the restore before failing.
+        run: |
+          for i in 1 2 3; do dotnet restore tests/DeskPilot.Linux.Tests && break; echo "restore failed, retrying ($i)"; sleep 15; done
+          dotnet build tests/DeskPilot.Linux.Tests -c Release --no-restore
 
       - name: Test (${{ matrix.session }})
         run: bash ci/run-linux-tests.sh ${{ matrix.session }}

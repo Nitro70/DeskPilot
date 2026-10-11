@@ -23,7 +23,8 @@ for f in "$CI_ROOT"/ci/session.d/*.sh; do
   source "$f"
 done
 cd "$CI_ROOT"
-dotnet test tests/DeskPilot.Linux.Tests -c Release --no-build \
+# --blame-hang names the hanging test and dumps it after 4 minutes, instead of running into the 6-hour job limit.
+timeout 1500 dotnet test tests/DeskPilot.Linux.Tests -c Release --no-build --blame-hang --blame-hang-timeout 4m \
   --logger "console;verbosity=normal" --logger "trx;LogFileName=linux-$DESKPILOT_TEST_SESSION.trx"
 EOS
 chmod +x "$CI_LOGS/in-session.sh"

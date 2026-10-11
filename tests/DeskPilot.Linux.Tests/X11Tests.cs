@@ -524,6 +524,8 @@ public sealed class X11DesktopTests : IDisposable
         if (!p.WaitForExit(timeoutMs))
         {
             try { p.Kill(true); } catch (Exception) { }
+            // Kill first: reading stderr of a live process would block until it exits.
+            try { p.Kill(true); p.WaitForExit(5000); } catch (InvalidOperationException) { }
             throw new TimeoutException("The dialog did not close; stderr: " + p.StandardError.ReadToEnd());
         }
         return stdout.Result.TrimEnd('\n');

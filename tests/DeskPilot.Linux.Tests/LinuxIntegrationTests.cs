@@ -103,6 +103,9 @@ public sealed class LinuxIntegrationX11Tests
         psi.Environment["XDG_CONFIG_HOME"] = Path.Combine(home, ".config");
         psi.Environment["XDG_DATA_HOME"] = Path.Combine(home, ".local", "share");
         using var app = Process.Start(psi)!;
+        // Read stderr in the background: a blocking read would only return when the app exits.
+        var stderr = app.StandardError.ReadToEndAsync();
+        _ = app.StandardOutput.ReadToEndAsync();
         using var windows = new X11WindowManager();
         try
         {
@@ -114,7 +117,7 @@ public sealed class LinuxIntegrationX11Tests
                 if (mine != null) break;
                 await Task.Delay(300);
             }
-            Assert.False(app.HasExited, "the app exited: " + await app.StandardError.ReadToEndAsync());
+            if (app.HasExited) Assert.Fail("the app exited: " + await stderr);
             Assert.NotNull(mine);
             Assert.Contains("DeskPilot", mine!.Title, StringComparison.OrdinalIgnoreCase);
 
@@ -170,6 +173,10 @@ public sealed class LinuxBridgeProcessTests
         };
         foreach (var a in endpoint.Args) psi.ArgumentList.Add(a);
         using var bridge = Process.Start(psi)!;
+        var stderrText = new StringBuilder();
+        bridge.ErrorDataReceived += (_, e) => { if (e.Data != null) lock (stderrText) stderrText.AppendLine(e.Data); };
+        bridge.BeginErrorReadLine();
+        string Stderr() { lock (stderrText) return stderrText.ToString(); }
         try
         {
             var stdin = bridge.StandardInput;
@@ -178,9 +185,9 @@ public sealed class LinuxBridgeProcessTests
             {
                 await stdin.WriteLineAsync(JsonSerializer.Serialize(new { jsonrpc = "2.0", id, method, @params }));
                 await stdin.FlushAsync();
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-                var line = await stdout.ReadLineAsync(cts.Token);
-                Assert.False(string.IsNullOrEmpty(line), "no reply; stderr: " + bridge.StandardError.ReadToEnd());
+                // WaitAsync gives a hard deadline even if the pipe read ignores cancellation.
+                var line = await stdout.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(20));
+                if (string.IsNullOrEmpty(line)) Assert.Fail("no reply from the bridge; its stderr: " + Stderr());
                 using var doc = JsonDocument.Parse(line!);
                 return doc.RootElement.Clone();
             }

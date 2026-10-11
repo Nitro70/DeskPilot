@@ -912,12 +912,17 @@ public sealed class UiMainTests : IDisposable
         var activated = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         first.ActivationRequested += () => activated.TrySetResult();
 
-        // A mutex is re-entrant on its owning thread, so the "second launch" runs elsewhere.
-        var (acquired, signalled) = await Task.Run(() =>
+        // A mutex is re-entrant on its owning thread, so the "second launch" must run on a thread that can never
+        // be the owner: a dedicated thread, not the thread pool (the test itself may be on a pool thread).
+        bool acquired = true, signalled = false;
+        var other = new Thread(() =>
         {
             using var second = new SingleInstanceGuard(name);
-            return (second.TryAcquire(), second.SignalFirstInstance());
+            acquired = second.TryAcquire();
+            signalled = second.SignalFirstInstance();
         });
+        other.Start();
+        Assert.True(other.Join(TimeSpan.FromSeconds(10)), "second instance thread did not finish");
 
         Assert.False(acquired);
         Assert.True(signalled);
